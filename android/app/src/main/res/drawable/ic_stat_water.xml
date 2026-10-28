@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The status-bar icon for alerts: a white water drop. Android tints it and
+     ignores colour, so only the shape matters. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M12,2.5C12,2.5 5,10.2 5,14.8C5,18.8 8.1,21.5 12,21.5C15.9,21.5 19,18.8 19,14.8C19,10.2 12,2.5 12,2.5ZM9.2,15.2C9.2,16.9 10.4,18.2 12,18.4L12,19.6C9.7,19.4 8,17.5 8,15.2L9.2,15.2Z"/>
+</vector>
