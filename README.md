@@ -1,138 +1,186 @@
 # GroundTank — Monitoring Air Ground Tank
 
-Aplikasi Flutter untuk memantau ketinggian air di ground tank: dashboard
-ketinggian secara real-time dan notifikasi saat air **penuh** atau **kosong**.
+Aplikasi Flutter untuk memantau ketinggian air di ground tank secara
+real-time, lengkap dengan notifikasi saat air **penuh** atau **kosong**. Data
+dibaca dari sensor ultrasonik (mis. ESP32 + JSN-SR04T) yang tersimpan di
+Supabase, atau dari mode **Demo** untuk mencoba tanpa perangkat.
 
-Struktur, gaya, dan pola kodenya mengikuti `Atara/mobile` (antarmuka Cupertino
-di dalam `MaterialApp`, Riverpod `StateNotifier`, font Plus Jakarta Sans yang
-dibundel, `InsetSection`/`AppButton`/`AppToast`), dengan palet yang diganti
-menjadi tema air: navy → biru → cyan.
+## Isi aplikasi
 
-## Fitur
+### Dashboard
+- **Gauge tangki** beranimasi dengan permukaan air bergelombang dan dua garis
+  putus-putus penanda batas penuh dan kosong.
+- **Persentase** terisi, **status** (Normal / Penuh / Kosong), tinggi air
+  terhadap tinggi maksimum, dan waktu pembaruan terakhir.
+- **Kartu ringkasan**:
+  - *Volume air*: liter saat ini dari kapasitas total.
+  - *Ketinggian*: tinggi air dalam cm (satu desimal, mis. `109,8 cm`).
+  - *Ruang kosong*: liter yang belum terisi.
+  - *Tren*: Mengisi / Berkurang / Stabil, laju %/menit, dan perkiraan waktu
+    sampai penuh atau kosong.
+- **Grafik riwayat ketinggian** dengan garis batas penuh dan kosong.
+- **Banner peringatan** bila sensor tidak terhubung atau perangkat berhenti
+  mengirim data.
+- Tarik ke bawah untuk memperbarui.
 
-- **Dashboard** — gauge tangki beranimasi (gelombang + garis ambang), persentase,
-  status (Normal / Penuh / Kosong), volume (L), ketinggian (cm), ruang kosong,
-  tren pengisian + perkiraan waktu sampai penuh/kosong, dan grafik riwayat.
-- **Notifikasi** — notifikasi sistem sekali setiap kali air *masuk* ke status
-  penuh atau kosong, dengan histeresis 3% agar riak air tidak memicu notifikasi
-  berulang. Riwayatnya tersimpan di tab Notifikasi (badge belum dibaca).
-- **Latar belakang (Android)** — WorkManager memeriksa tangki tiap ~15 menit
-  saat aplikasi ditutup. Saat aplikasi terbuka, pembacaan setiap 5 detik
-  (bisa diatur), ditambah Realtime untuk mode Database.
-- **Database Supabase** — membaca `sensor_readings` untuk satu perangkat dan
-  sensor pilihan; riwayat grafik diisi dari database, pembacaan baru masuk
-  lewat Realtime dengan polling sebagai cadangan, dan perangkat yang berhenti
-  mengirim ditandai "Tidak aktif".
-- **Pengaturan** — sumber data (Demo / Database) dengan pemilih perangkat &
-  sensor + uji koneksi, dimensi tangki, ambang penuh/kosong, interval,
-  notifikasi, tampilan terang/gelap.
-- **Mode Demo** — tangki simulasi yang terisi dan terkuras dalam siklus 6 menit,
-  untuk mencoba aplikasi sebelum sensor terpasang.
+Pill di kanan atas menunjukkan asal dan kesegaran data:
+
+| Pill | Arti |
+|---|---|
+| **Demo** | Data simulasi |
+| **Live** | Membaca Supabase, data terbaru berumur < 2 menit |
+| **Tidak aktif** | Membaca Supabase, tetapi perangkat tidak mengirim data > 2 menit |
+| **Offline** | Gagal menghubungi Supabase (alasannya tampil di banner) |
+
+### Notifikasi
+- Notifikasi sistem muncul **sekali** setiap kali air *masuk* ke status penuh
+  atau kosong. Status baru dilepas setelah air bergeser 3% dari batasnya
+  (histeresis), sehingga riak air tidak memicu notifikasi berulang.
+- Saat aplikasi terbuka, peringatan juga tampil sebagai toast di layar.
+- Tab **Notifikasi** menyimpan riwayatnya per hari (maks. 50), dengan badge
+  untuk yang belum dibaca.
+- Di Android, tangki tetap diperiksa saat aplikasi ditutup, paling cepat tiap
+  ±15 menit.
+
+### Pengaturan
+
+| Bagian | Isi |
+|---|---|
+| **Sumber data** | *Demo* atau *Database (Supabase)*. Untuk Database: pilih **Perangkat**, **Sensor ketinggian**, **arti nilai**, lalu **Uji koneksi** |
+| **Dimensi tangki** | Tinggi air maksimum (cm), jarak sensor ke dasar (cm), kapasitas (L) |
+| **Ambang & pembaruan** | Batas penuh (default 90%), batas kosong (default 15%), interval pembaruan (default 5 detik) |
+| **Notifikasi** | Aktif/nonaktif peringatan, pantau di latar belakang (Android), kirim notifikasi uji |
+| **Tampilan** | Ikuti sistem / Terang / Gelap |
+
+> Perubahan Sumber data, Dimensi tangki, Ambang, dan Notifikasi baru berlaku
+> setelah menekan **Simpan pengaturan** di bagian bawah. Tampilan berlaku
+> langsung.
+
+#### Arti nilai: Persen, Tinggi air, atau Jarak
+Menentukan arti angka `value` yang dikirim perangkat. Pilihannya ditebak
+otomatis dari `sensors.unit` dan nama sensor, dan bisa diubah:
+
+| Pilihan | Pilih ketika perangkat mengirim… | Ciri datanya |
+|---|---|---|
+| **Jarak** | jarak sensor ke permukaan air, dari sensor ultrasonik/laser di atas tangki | makin **kecil** saat air makin penuh |
+| **Tinggi air** | tinggi air dari dasar (sudah dihitung di perangkat, atau sensor tekanan) | makin **besar** saat penuh, dalam cm |
+| **Persen** | persen terisi yang sudah dihitung perangkat | selalu 0–100 |
+
+Disarankan perangkat mengirim **jarak mentah** dan memilih **Jarak**. Ukuran
+tangki cukup diatur di aplikasi, tanpa mengubah firmware.
+
+#### Dimensi tangki
+
+```
+  ┌──── sensor ────┐  ─┬─
+  │                │   │ ≥ zona mati sensor (JSN-SR04T ±25 cm)
+  │~~~~ penuh ~~~~~│  ─┼─            ─┬─
+  │                │   │ jarak       │
+  │      air       │   │ sensor      │ tinggi air maksimum (= 100%)
+  │                │   │ ke dasar    │
+  └────────────────┘  ─┴─            ─┴─
+```
+
+- **Jarak sensor ke dasar**: dari permukaan sensor sampai lantai tangki. Hanya
+  dipakai bila arti nilai = Jarak.
+- **Tinggi air maksimum**: tinggi air dari lantai saat dianggap penuh 100%.
+- **Kapasitas**: liter pada tinggi maksimum. Balok: panjang × lebar × tinggi
+  (cm) ÷ 1000; tabung: 3,14 × r² × tinggi (cm) ÷ 1000.
+- Aplikasi hanya mensyaratkan jarak sensor ke dasar ≥ tinggi maksimum. Namun
+  sensor punya **jarak minimum** yang tidak bisa diukur, jadi beri selisih
+  minimal sebesar zona mati sensor (JSN-SR04T ±25 cm, HC-SR04 ±5 cm). Bila
+  sensor sudah terpasang terlalu dekat, turunkan tinggi maksimum.
+
+### Cara angka di dashboard dihitung
+Database menyimpan nilai mentah sensor. Semua angka di dashboard dihitung dari
+nilai itu dan Dimensi tangki:
+
+```
+Jarak       : persen = (jarak sensor ke dasar − value) / tinggi maksimum × 100
+Tinggi air  : persen = value / tinggi maksimum × 100
+Persen      : persen = value
+                         (dibatasi 0–100%)
+tinggi air  = persen × tinggi maksimum
+volume      = persen × kapasitas
+ruang kosong = kapasitas − volume
+```
+
+Contoh (Jarak, 220 cm ke dasar, maks. 200 cm, 5.000 L), `value = 110.2`:
+tinggi air 109,8 cm → **54,9%** → 2.745 L.
+
+Karena yang disimpan nilai mentah, mengubah Dimensi tangki langsung
+menghitung ulang dashboard dan grafik tanpa mengubah data di Supabase.
+
+## Memakai data Supabase
+
+### 1. Siapkan database
+Aplikasi membaca tabel `devices`, `sensors`, `device_sensors`, dan
+`sensor_readings`. Jalankan [`supabase/setup.sql`](supabase/setup.sql) sekali
+di **SQL Editor**. Isinya:
+- **Index** agar query pembacaan terbaru dan riwayat tetap cepat.
+- **RLS read-only**: aplikasi hanya bisa membaca.
+- **Realtime** pada `sensor_readings`, agar dashboard berubah saat data baru
+  masuk. Tanpa ini aplikasi tetap jalan dengan polling.
+
+⚠️ Bila perangkat saat ini meng-*insert* `sensor_readings` memakai anon key,
+RLS akan memblokirnya. Pindahkan perangkat ke fungsi `submit_reading`.
+
+### 2. Kirim data dari perangkat
+Panduan fungsi `submit_reading`, token per perangkat, dan format request ada
+di [`firmware/README.md`](firmware/README.md).
+
+### 3. Data dummy (opsional)
+[`supabase/seed.sql`](supabase/seed.sql) mengisi 2 perangkat, 3 sensor, dan
+±180 pembacaan (2 jam naik hampir penuh lalu turun hampir kosong) untuk
+mencoba tanpa perangkat. Aman dijalankan ulang. Di bagian bawahnya ada contoh
+`insert` untuk memicu notifikasi dan perintah untuk menghapus data dummy.
+
+### 4. Hubungkan aplikasi
+**Pengaturan → Sumber data → Database (Supabase) → Perangkat → Sensor
+ketinggian → Uji koneksi → Simpan pengaturan.** Subjudul di dashboard berubah
+menjadi nama perangkat.
 
 ## Menjalankan
 
 ```bash
 flutter pub get
-cp env.example.json env.json      # isi URL proyek + publishable/anon key Supabase
+cp env.example.json env.json      # isi URL proyek + publishable key Supabase
 flutter run --dart-define-from-file=env.json
 flutter test
 flutter build apk --release --dart-define-from-file=env.json
 ```
 
-Di VS Code cukup pilih konfigurasi **GroundTank** (`.vscode/launch.json` sudah
-membawa flag tersebut). Tanpa `env.json`, aplikasi tetap berjalan dalam mode
-**Demo** dan opsi Database ditandai "Belum dikonfigurasi".
-
-`env.json` diabaikan git. Kunci *publishable/anon* memang aman berada di
-aplikasi klien — yang menentukan apa yang boleh dibaca adalah kebijakan RLS —
-tetapi **jangan pernah** memakai `service_role` key di sini.
-
-## Setup Supabase
-
-Aplikasi membaca empat tabel yang sudah ada: `devices`, `sensors`,
-`device_sensors`, dan `sensor_readings`. Jalankan
-[`supabase/setup.sql`](supabase/setup.sql) sekali di **SQL Editor**:
-
-1. **Index** `(device_id, sensor_id, timestamp desc)` agar query "pembacaan
-   terbaru" dan riwayat tetap cepat saat `sensor_readings` membesar.
-2. **RLS** + kebijakan `SELECT` (read-only) untuk aplikasi. ⚠️ Jika perangkat
-   saat ini meng-*insert* `sensor_readings` memakai anon key, mengaktifkan RLS
-   akan memblokir insert tersebut. Pindahkan perangkat ke fungsi
-   `submit_reading` (lihat [`firmware/README.md`](firmware/README.md)), jangan
-   membuka policy `insert` untuk anon.
-3. **Realtime** pada `sensor_readings`, supaya dashboard langsung berubah saat
-   baris baru masuk. Tanpa ini aplikasi tetap jalan dengan polling.
-
-Lalu di aplikasi: **Pengaturan → Sumber data → Database → Perangkat → Sensor
-ketinggian → Uji koneksi → Simpan pengaturan**.
-
-Untuk mengirim data dari ESP32 ke Supabase (fungsi `submit_reading`, token per
-perangkat, format request), lihat [`firmware/README.md`](firmware/README.md).
-
-### Data dummy
-
-[`supabase/seed.sql`](supabase/seed.sql) mengisi 2 perangkat, 3 sensor, dan
-±180 pembacaan untuk mencoba aplikasi tanpa ESP32: "ESP32 Ground Tank" dengan
-sensor ultrasonik (2 jam terakhir, naik hampir penuh lalu turun hampir kosong,
-berakhir ±55%) dan sensor suhu, serta "ESP32 Toren Atas" (nonaktif, data
-sehari lalu). Aman dijalankan ulang. Di bagian bawah file ada contoh `insert`
-untuk memicu notifikasi penuh/kosong dan perintah untuk menghapus semua data
-dummy.
-
-### Arti `sensor_readings.value`
-
-Kolom `value` bertipe `text`; aplikasi menerima `"75.3"`, `"75,3"`, atau
-`" 75 "`, dan melewati baris yang bukan angka. Artinya ditebak dari
-`sensors.unit` saat sensor dipilih, dan bisa diubah di Pengaturan:
-
-| `sensors.unit` | Nama / `data_type` sensor | Dibaca sebagai |
-|---|---|---|
-| `%`, `percent`, `persen` | apa saja | Persen terisi |
-| `cm`, `mm`, `m` | memuat *jarak, distance, ultrasonic, sonar, sr04* | Jarak sensor ke permukaan air → tinggi air = *jarak sensor ke dasar* − nilai |
-| `cm`, `mm`, `m` | lainnya | Tinggi air dari dasar tangki |
-
-`mm` dan `m` dikonversi ke cm. Bila pembacaan terbaru lebih tua dari 3× interval
-(minimal 2 menit), dashboard menandai perangkat **Tidak aktif**.
+- Di VS Code, pilih konfigurasi **GroundTank** (`.vscode/launch.json`).
+- Tanpa `env.json`, aplikasi berjalan dalam mode Demo, dan opsi Database
+  ditandai "Belum dikonfigurasi".
+- Setelah mengubah `env.json`, hentikan lalu jalankan ulang aplikasi; hot
+  reload tidak membaca ulang kunci.
+- `env.json` diabaikan git. Publishable/anon key aman berada di aplikasi
+  karena akses diatur RLS. **Jangan pernah** memakai `service_role` key.
 
 ## Struktur kode
 
 ```
 lib/
-  background/   # WorkManager: pemeriksaan berkala Android saat app ditutup
-  config/       # Env: kunci Supabase dari --dart-define-from-file
-  models/       # TankConfig, TankReading, TankLevel/AlertEntry,
-                # Device, Sensor, SensorReading (baris tabel Supabase)
-  services/     # reading_conversion + tank_rules (logika murni, diuji),
-                # tank_repository (semua query Supabase), tank_source
-                # (Demo/Database), tank_evaluator (status → notifikasi),
-                # notification_service, settings_service, format
-  providers/    # config, monitor (riwayat + Realtime + polling), database
-                # (client, repository, daftar perangkat/sensor), alerts, theme
-  screens/      # HomeShell, Dashboard, Notifikasi, Pengaturan,
-                # pemilih perangkat & sensor
-  widgets/      # ios/ (AppPage, AsyncListPage, InsetSection, AppButton, AppToast),
-                # dashboard/ (TankGauge, LevelChart, StatTile), brand/, motion/
-  theme/        # AppColors (palet air, terang + gelap), AppText, AppMotion
-supabase/setup.sql  # index, RLS read-only, Realtime untuk tabel sensor
-tool/make_icon.py   # menggambar ulang ikon launcher Android & iOS
+  background/   # pemeriksaan berkala Android (WorkManager) saat app ditutup
+  config/       # kunci Supabase dari --dart-define-from-file
+  models/       # konfigurasi tangki, pembacaan, status, baris tabel Supabase
+  services/     # konversi nilai & aturan status (logika murni, diuji),
+                # query Supabase (TankRepository), sumber data Demo/Database,
+                # evaluasi notifikasi, penyimpanan lokal, format teks
+  providers/    # state: konfigurasi, monitor (riwayat + Realtime + polling),
+                # database, riwayat notifikasi, tema
+  screens/      # Dashboard, Notifikasi, Pengaturan, pemilih perangkat & sensor
+  widgets/      # komponen UI, gauge tangki, grafik, kartu ringkasan
+  theme/        # warna (terang + gelap), tipografi, animasi
+supabase/       # setup.sql (index, RLS, Realtime), seed.sql (data dummy)
+firmware/       # panduan unggah data perangkat ke Supabase
+tool/           # make_icon.py: menggambar ulang ikon aplikasi
 ```
 
-Seperti di Atara, **keputusan yang layak diuji diangkat keluar dari layar**
-menjadi fungsi murni (`inferValueKind`, `readingFrom`, `classifyLevel`,
-`alertFor`, `validateConfig`, `isStale`, `trendOf`). Semua query Supabase
-hanya ada di `TankRepository`, sehingga layar dan provider tidak pernah
-menyentuh nama tabel atau kolom. Dashboard dan pemeriksaan latar belakang memakai
-jalur yang sama (`TankEvaluator`), dan status terakhir disimpan di
-SharedPreferences, sehingga tangki yang penuh saat aplikasi ditutup hanya
-diumumkan sekali.
-
 ## Catatan
-
-- Pemeriksaan latar belakang hanya di Android; interval minimum WorkManager
-  adalah 15 menit dan bisa lebih lama saat HP dalam mode hemat daya. Untuk
-  peringatan instan saat aplikasi tertutup, perlu push dari server (mis.
-  Database Webhook/Edge Function Supabase → Firebase Cloud Messaging) — belum
-  termasuk.
-- `workmanager_android` saat ini masih memakai Kotlin Gradle Plugin; Flutter
-  memberi peringatan bahwa versi mendatang akan menolaknya. Perbarui plugin
-  saat versi yang mendukung *Built-in Kotlin* tersedia.
+- Pemeriksaan saat aplikasi ditutup hanya di Android, dengan interval minimum
+  15 menit (bisa lebih lama saat HP hemat daya). Peringatan instan saat
+  aplikasi tertutup memerlukan push dari server (mis. Edge Function Supabase →
+  Firebase Cloud Messaging). Fitur ini belum ada.
+- Di iOS, notifikasi dikirim selama aplikasi terbuka.
