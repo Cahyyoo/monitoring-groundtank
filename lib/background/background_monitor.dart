@@ -26,19 +26,17 @@ void backgroundDispatcher() {
     SupabaseClient? client;
     try {
       final config = await SettingsService.loadConfig();
-      if (!config.backgroundEnabled) return true;
+      if (!_shouldRun(config) || !Env.isSupabaseConfigured) return true;
       // A bare client rather than Supabase.initialize: this isolate needs one
       // query, not a persisted auth session or lifecycle handling.
-      if (!config.isDemo && Env.isSupabaseConfigured) {
-        client = SupabaseClient(
-          Env.supabaseUrl,
-          Env.supabaseKey,
-          authOptions: const AuthClientOptions(autoRefreshToken: false),
-        );
-      }
+      client = SupabaseClient(
+        Env.supabaseUrl,
+        Env.supabaseKey,
+        authOptions: const AuthClientOptions(autoRefreshToken: false),
+      );
       final source = TankSource.forConfig(
         config,
-        repository: client == null ? null : TankRepository(client),
+        repository: TankRepository(client),
       );
       await TankEvaluator.evaluate(await source.fetch(), config);
     } catch (e) {
@@ -52,6 +50,10 @@ void backgroundDispatcher() {
     return true;
   });
 }
+
+/// Whether there is a sensor to check and the user wants it checked.
+bool _shouldRun(TankConfig config) =>
+    config.backgroundEnabled && config.hasSensor;
 
 /// Keeps the scheduled background check in line with the configuration.
 ///
@@ -69,7 +71,7 @@ class BackgroundMonitor {
         await Workmanager().initialize(backgroundDispatcher);
         _initialised = true;
       }
-      if (!config.backgroundEnabled) {
+      if (!_shouldRun(config)) {
         await Workmanager().cancelByUniqueName(_uniqueName);
         return;
       }
@@ -80,11 +82,7 @@ class BackgroundMonitor {
         // `update` so a changed source takes effect without waiting out the
         // old schedule.
         existingWorkPolicy: ExistingPeriodicWorkPolicy.update,
-        constraints: Constraints(
-          networkType: config.isDemo
-              ? NetworkType.notRequired
-              : NetworkType.connected,
-        ),
+        constraints: Constraints(networkType: NetworkType.connected),
       );
     } catch (e) {
       debugPrint('Could not schedule background check: $e');

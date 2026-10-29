@@ -3,7 +3,6 @@ import 'package:groundtank/models/tank_config.dart';
 import 'package:groundtank/models/tank_level.dart';
 import 'package:groundtank/models/tank_reading.dart';
 import 'package:groundtank/services/tank_rules.dart';
-import 'package:groundtank/services/tank_source.dart';
 
 void main() {
   const config = TankConfig(fullThreshold: 90, emptyThreshold: 15);
@@ -99,20 +98,16 @@ void main() {
   });
 
   group('validateConfig', () {
-    test('accepts the defaults', () {
-      expect(validateConfig(const TankConfig()), isEmpty);
-    });
-
-    test('needs a device and then a sensor for the database source', () {
-      const database = TankConfig(sourceMode: SourceMode.database);
-      expect(validateConfig(database), contains('deviceId'));
+    test('needs a device and then a sensor', () {
+      const defaults = TankConfig();
+      expect(validateConfig(defaults), contains('deviceId'));
       expect(
-        validateConfig(database.copyWith(deviceId: () => 'device-1')),
+        validateConfig(defaults.copyWith(deviceId: () => 'device-1')),
         contains('sensorId'),
       );
       expect(
         validateConfig(
-          database.copyWith(
+          defaults.copyWith(
             deviceId: () => 'device-1',
             sensorId: () => 'sensor-1',
           ),
@@ -203,20 +198,6 @@ void main() {
       const filling = Trend(TrendDirection.filling, 5);
       expect(minutesToThreshold(80, filling, config), 2);
       expect(minutesToThreshold(95, filling, config), isNull);
-    });
-  });
-
-  group('DemoTankSource', () {
-    test('stays inside the tank and visits both ends', () {
-      final demo = DemoTankSource(const TankConfig(), latency: Duration.zero);
-      final start = DateTime(2026, 1, 1);
-      final samples = [
-        for (var s = 0; s < 360; s += 2)
-          demo.percentAt(start.add(Duration(seconds: s))),
-      ];
-      expect(samples.every((p) => p >= 0 && p <= 100), isTrue);
-      expect(samples.any((p) => p >= 90), isTrue);
-      expect(samples.any((p) => p <= 15), isTrue);
     });
   });
 }

@@ -2,10 +2,12 @@ import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:groundtank/main.dart';
+import 'package:groundtank/models/tank_config.dart';
 import 'package:groundtank/models/tank_level.dart';
 import 'package:groundtank/models/tank_reading.dart';
-import 'package:groundtank/providers/monitor_provider.dart';
 import 'package:groundtank/providers/alerts_provider.dart';
+import 'package:groundtank/providers/config_provider.dart';
+import 'package:groundtank/providers/monitor_provider.dart';
 import 'package:groundtank/services/tank_source.dart';
 import 'package:intl/date_symbol_data_local.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -34,7 +36,18 @@ void main() {
 
     await tester.pumpWidget(
       ProviderScope(
-        overrides: [tankSourceProvider.overrideWithValue(source)],
+        overrides: [
+          configProvider.overrideWith(
+            (ref) => ConfigNotifier(
+              const TankConfig(
+                deviceId: 'device-1',
+                deviceName: 'ESP32 Ground Tank',
+                sensorId: 'sensor-1',
+              ),
+            ),
+          ),
+          tankSourceProvider.overrideWithValue(source),
+        ],
         child: const GroundTankApp(),
       ),
     );
@@ -43,6 +56,8 @@ void main() {
     await tester.pump(const Duration(milliseconds: 800));
 
     expect(find.text('GroundTank'), findsOneWidget);
+    expect(find.text('ESP32 Ground Tank'), findsOneWidget);
+    expect(find.text('Live'), findsOneWidget);
     expect(find.text('50%'), findsOneWidget);
     expect(find.text('Normal'), findsOneWidget);
 
@@ -66,6 +81,22 @@ void main() {
     // Let the toast's timer run out, then tear the tree down so the polling
     // timer and the wave stop with it.
     await tester.pump(const Duration(seconds: 3));
+    await tester.pumpWidget(const SizedBox());
+  });
+
+  testWidgets('dashboard asks for a sensor before one is chosen', (
+    tester,
+  ) async {
+    SharedPreferences.setMockInitialValues({});
+
+    await tester.pumpWidget(const ProviderScope(child: GroundTankApp()));
+    await tester.pump(const Duration(milliseconds: 100));
+    await tester.pump(const Duration(milliseconds: 800));
+
+    expect(find.text('Sensor belum dipilih'), findsOneWidget);
+    expect(find.text('Belum diatur'), findsOneWidget);
+    expect(find.text('--'), findsWidgets);
+
     await tester.pumpWidget(const SizedBox());
   });
 }

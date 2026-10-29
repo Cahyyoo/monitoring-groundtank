@@ -23,7 +23,7 @@ import '../widgets/ios/inset_section.dart';
 import 'device_picker_screen.dart';
 import 'sensor_picker_screen.dart';
 
-/// The data source, the tank's dimensions, the thresholds, and appearance.
+/// The device and sensor to read, the tank's dimensions, the thresholds, and appearance.
 ///
 /// Tank settings are edited as a draft and applied together with one button,
 /// because a half-typed threshold must not start raising notifications.
@@ -37,7 +37,6 @@ class SettingsScreen extends ConsumerStatefulWidget {
 
 class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   late TankConfig _saved;
-  late SourceMode _source;
   late bool _notifications;
   late bool _background;
   String? _deviceId;
@@ -67,7 +66,6 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
 
   void _fill(TankConfig c) {
     _saved = c;
-    _source = c.sourceMode;
     _notifications = c.notificationsEnabled;
     _background = c.backgroundEnabled;
     _deviceId = c.deviceId;
@@ -130,7 +128,6 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     if (bad.isNotEmpty) return (null, bad);
 
     final config = _saved.copyWith(
-      sourceMode: _source,
       deviceId: () => _deviceId,
       deviceName: () => _deviceName,
       sensorId: () => _sensorId,
@@ -287,70 +284,50 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
         ? Icon(CupertinoIcons.check_mark, size: 20, color: palette.accent)
         : const SizedBox(width: 20);
 
-    void selectSource(SourceMode mode) {
-      setState(() => _source = mode);
-      _touch();
-    }
-
-    final sourceFooter = switch (_source) {
-      _ when sourceError != null => sourceError,
-      SourceMode.demo when !databaseAvailable =>
-        'Database belum tersedia: build ini tidak membawa SUPABASE_URL dan '
+    final sourceFooter = switch (_valueKind) {
+      _ when !databaseAvailable =>
+        'Supabase belum dikonfigurasi: build ini tidak membawa SUPABASE_URL dan '
             'SUPABASE_PUBLISHABLE_KEY (jalankan dengan --dart-define-from-file=env.json).',
-      SourceMode.demo =>
-        'Tangki simulasi yang terisi dan terkuras sendiri dalam siklus 6 menit.',
-      SourceMode.database => switch (_valueKind) {
-        ValueKind.percent =>
-          'Nilai sensor dibaca langsung sebagai persen terisi.',
-        ValueKind.levelCm =>
-          'Nilai sensor dibaca sebagai tinggi air dari dasar tangki.',
-        ValueKind.distanceCm =>
-          'Nilai sensor dibaca sebagai jarak sensor ke permukaan air; tinggi air = '
-              'jarak sensor ke dasar – nilai ini.',
-      },
+      _ when sourceError != null => sourceError,
+      ValueKind.percent =>
+        'Nilai sensor dibaca langsung sebagai persen terisi.',
+      ValueKind.levelCm =>
+        'Nilai sensor dibaca sebagai tinggi air dari dasar tangki.',
+      ValueKind.distanceCm =>
+        'Nilai sensor dibaca sebagai jarak sensor ke permukaan air; tinggi air = '
+            'jarak sensor ke dasar – nilai ini.',
     };
 
     return AppPage.list(
       title: 'Pengaturan',
       children: [
         InsetSection(
-          header: 'Sumber data',
+          header: 'Sensor (Supabase)',
           footer: sourceFooter,
-          footerIsError: sourceError != null,
+          footerIsError: !databaseAvailable || sourceError != null,
           children: [
             InsetRow(
-              title: 'Demo (simulasi)',
-              trailing: check(_source == SourceMode.demo),
-              onTap: () => selectSource(SourceMode.demo),
+              title: 'Perangkat',
+              subtitle: _deviceName ?? 'Belum dipilih',
+              showChevron: databaseAvailable,
+              onTap: databaseAvailable ? _pickDevice : null,
             ),
             InsetRow(
-              title: 'Database (Supabase)',
-              subtitle: databaseAvailable ? null : 'Belum dikonfigurasi',
-              trailing: check(_source == SourceMode.database),
-              onTap: databaseAvailable
-                  ? () => selectSource(SourceMode.database)
+              title: 'Sensor ketinggian',
+              subtitle: _sensorId == null
+                  ? (_deviceId == null
+                        ? 'Pilih perangkat dulu'
+                        : 'Belum dipilih')
+                  : [
+                      ?_sensorName,
+                      if (_sensorUnit != null) 'unit $_sensorUnit',
+                    ].join(' · '),
+              showChevron: databaseAvailable && _deviceId != null,
+              onTap: databaseAvailable && _deviceId != null
+                  ? _pickSensor
                   : null,
             ),
-            if (_source == SourceMode.database) ...[
-              InsetRow(
-                title: 'Perangkat',
-                subtitle: _deviceName ?? 'Belum dipilih',
-                showChevron: true,
-                onTap: _pickDevice,
-              ),
-              InsetRow(
-                title: 'Sensor ketinggian',
-                subtitle: _sensorId == null
-                    ? (_deviceId == null
-                          ? 'Pilih perangkat dulu'
-                          : 'Belum dipilih')
-                    : [
-                        ?_sensorName,
-                        if (_sensorUnit != null) 'unit $_sensorUnit',
-                      ].join(' · '),
-                showChevron: _deviceId != null,
-                onTap: _deviceId == null ? null : _pickSensor,
-              ),
+            if (_sensorId != null) ...[
               InsetCustomRow(
                 child: SizedBox(
                   width: double.infinity,

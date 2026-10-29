@@ -6,8 +6,8 @@ import '../models/device.dart';
 import '../models/sensor.dart';
 import '../services/tank_repository.dart';
 
-/// Null when this build has no Supabase keys, or initialising failed; the app
-/// then offers Demo only. Overridden in tests.
+/// Null when this build has no Supabase keys, or initialising failed; every
+/// read then explains that instead. Overridden in tests.
 final supabaseClientProvider = Provider<SupabaseClient?>((ref) {
   if (!Env.isSupabaseConfigured) return null;
   try {

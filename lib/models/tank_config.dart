@@ -1,15 +1,5 @@
 import 'package:flutter/foundation.dart';
 
-/// Where readings come from.
-enum SourceMode {
-  /// A simulated tank that fills and drains on its own, for trying the app
-  /// before a sensor exists.
-  demo,
-
-  /// `sensor_readings` in the Supabase project, for one device and sensor.
-  database,
-}
-
 /// What a sensor's `value` measures.
 enum ValueKind {
   /// Already a fill percentage, 0–100.
@@ -24,12 +14,14 @@ enum ValueKind {
 
 /// Everything the user can set about the tank and how it is watched.
 ///
+/// Readings always come from `sensor_readings` in Supabase, for the one
+/// device and sensor chosen here.
+///
 /// Stored as one JSON document, so adding a field never needs a migration:
 /// an older install simply reads the default for it.
 @immutable
 class TankConfig {
   const TankConfig({
-    this.sourceMode = SourceMode.demo,
     this.deviceId,
     this.deviceName,
     this.sensorId,
@@ -45,8 +37,6 @@ class TankConfig {
     this.notificationsEnabled = true,
     this.backgroundEnabled = true,
   });
-
-  final SourceMode sourceMode;
 
   /// `devices.id` of the tank's controller.
   final String? deviceId;
@@ -91,14 +81,15 @@ class TankConfig {
   /// Whether Android keeps checking every ~15 minutes after the app closes.
   final bool backgroundEnabled;
 
-  bool get isDemo => sourceMode == SourceMode.demo;
+  /// Whether a device and its level sensor have been chosen; until then
+  /// there is nothing to read.
+  bool get hasSensor => deviceId != null && sensorId != null;
 
   /// The data source a reading is tied to; another one is another tank.
-  String get sourceKey => isDemo ? 'demo' : 'db:$deviceId:$sensorId';
+  String get sourceKey => 'db:$deviceId:$sensorId';
 
   /// Nullable fields take a function so they can be cleared, not only set.
   TankConfig copyWith({
-    SourceMode? sourceMode,
     String? Function()? deviceId,
     String? Function()? deviceName,
     String? Function()? sensorId,
@@ -115,7 +106,6 @@ class TankConfig {
     bool? backgroundEnabled,
   }) {
     return TankConfig(
-      sourceMode: sourceMode ?? this.sourceMode,
       deviceId: deviceId != null ? deviceId() : this.deviceId,
       deviceName: deviceName != null ? deviceName() : this.deviceName,
       sensorId: sensorId != null ? sensorId() : this.sensorId,
@@ -134,7 +124,6 @@ class TankConfig {
   }
 
   Map<String, Object?> toJson() => {
-    'sourceMode': sourceMode.name,
     'deviceId': deviceId,
     'deviceName': deviceName,
     'sensorId': sensorId,
@@ -152,8 +141,8 @@ class TankConfig {
   };
 
   /// Tolerant on purpose: a missing or mistyped field falls back to its
-  /// default instead of discarding the whole stored configuration — which is
-  /// also how an install saved with the old `http` source lands on demo.
+  /// default instead of discarding the whole stored configuration. Keys of
+  /// removed features (`sourceMode`, `endpointUrl`) are simply ignored.
   factory TankConfig.fromJson(Map<String, Object?> json) {
     const d = TankConfig();
     double number(String key, double fallback) =>
@@ -168,7 +157,6 @@ class TankConfig {
         values.where((v) => v.name == json[key]).firstOrNull ?? fallback;
 
     return TankConfig(
-      sourceMode: pick(SourceMode.values, 'sourceMode', d.sourceMode),
       deviceId: text('deviceId'),
       deviceName: text('deviceName'),
       sensorId: text('sensorId'),

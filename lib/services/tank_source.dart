@@ -1,5 +1,3 @@
-import 'dart:math' as math;
-
 import '../models/tank_config.dart';
 import '../models/tank_reading.dart';
 import 'reading_conversion.dart';
@@ -33,19 +31,15 @@ abstract class TankSource {
   /// The source a configuration asks for. Used by both the dashboard and the
   /// background check, so the two never disagree about where data lives.
   ///
-  /// [repository] is required for [SourceMode.database]; without one (the
-  /// build has no Supabase keys) every fetch explains that instead.
+  /// Without a [repository] (the build has no Supabase keys) every fetch
+  /// explains that instead.
   static TankSource forConfig(TankConfig config, {TankRepository? repository}) {
-    return switch (config.sourceMode) {
-      SourceMode.demo => DemoTankSource(config),
-      SourceMode.database when repository != null => DatabaseTankSource(
-        repository,
-        config,
-      ),
-      SourceMode.database => const _UnavailableSource(
+    if (repository == null) {
+      return const _UnavailableSource(
         'Supabase belum dikonfigurasi pada build ini (env.json).',
-      ),
-    };
+      );
+    }
+    return DatabaseTankSource(repository, config);
   }
 }
 
@@ -115,61 +109,6 @@ class DatabaseTankSource extends TankSource {
             measuredAt: row.timestamp,
           ),
         );
-  }
-}
-
-/// A simulated tank that fills and drains on a [period] cycle.
-///
-/// A function of the wall clock rather than of internal state, so the
-/// dashboard and the background check — two isolates — see the same tank,
-/// and a demo left running visits both full and empty within one cycle.
-class DemoTankSource extends TankSource {
-  DemoTankSource(
-    this.config, {
-    this.period = const Duration(minutes: 6),
-    DateTime Function()? clock,
-    this.latency = const Duration(milliseconds: 250),
-  }) : _clock = clock ?? DateTime.now;
-
-  final TankConfig config;
-  final Duration period;
-  final Duration latency;
-  final DateTime Function() _clock;
-
-  /// The level at [at], before clamping. Overshoots 0 and 100 a little so the
-  /// tank rests at each end for a moment, as a real one does while a pump or
-  /// a float valve catches up.
-  double percentAt(DateTime at) {
-    final t = at.millisecondsSinceEpoch / period.inMilliseconds;
-    final wave = 50 - 56 * math.cos(2 * math.pi * t);
-    final ripple = 0.6 * math.sin(2 * math.pi * t * 37);
-    return (wave + ripple).clamp(0, 100).toDouble();
-  }
-
-  TankReading _readingAt(DateTime at) {
-    final percent = percentAt(at);
-    final level = config.tankHeightCm * percent / 100;
-    return TankReading(
-      percent: percent,
-      levelCm: level,
-      volumeLiters: config.capacityLiters * percent / 100,
-      measuredAt: at,
-      distanceCm: config.sensorToBottomCm - level,
-    );
-  }
-
-  @override
-  Future<TankReading> fetch() async {
-    if (latency > Duration.zero) await Future<void>.delayed(latency);
-    return _readingAt(_clock());
-  }
-
-  @override
-  Future<List<TankReading>> recent(Duration window) async {
-    final now = _clock();
-    final step = Duration(seconds: config.pollSeconds.clamp(2, 3600));
-    final count = (window.inSeconds / step.inSeconds).floor().clamp(0, 120);
-    return [for (var i = count; i > 0; i--) _readingAt(now.subtract(step * i))];
   }
 }
 

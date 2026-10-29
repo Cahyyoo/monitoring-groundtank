@@ -47,7 +47,16 @@ class DashboardScreen extends ConsumerWidget {
     });
 
     final sections = <Widget>[
-      if (state.error != null)
+      if (!config.hasSensor)
+        _Banner(
+          title: 'Sensor belum dipilih',
+          message:
+              'Buka tab Pengaturan, pilih perangkat dan sensor ketinggian, '
+              'lalu tekan Simpan pengaturan.',
+          icon: CupertinoIcons.gear,
+          tone: palette.info,
+        )
+      else if (state.error != null)
         _Banner(
           title: state.showsLastKnown
               ? 'Menampilkan data terakhir'
@@ -212,9 +221,7 @@ class _Hero extends StatelessWidget {
                           style: AppText.headline.copyWith(color: onHero),
                         ),
                         Text(
-                          config.isDemo
-                              ? 'Monitoring ketinggian air'
-                              : config.deviceName ?? 'Database',
+                          config.deviceName ?? 'Monitoring ketinggian air',
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           style: AppText.caption.copyWith(
@@ -307,18 +314,15 @@ class _SourcePill extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final palette = context.palette;
-    final (String label, Color dot) = switch ((config.isDemo, state.error)) {
-      (true, _) => ('Demo', const Color(0xFFFFD166)),
-      (false, null) when state.isOutdated => (
-        'Tidak aktif',
-        palette.warning.foreground,
+    final (String label, Color dot) = switch (state.error) {
+      _ when !config.hasSensor => (
+        'Belum diatur',
+        palette.onHero.withValues(alpha: 0.5),
       ),
-      (false, null) when state.reading != null => (
-        'Live',
-        palette.success.foreground,
-      ),
-      (false, null) => ('Menghubungkan', const Color(0xFFFFFFFF)),
-      (false, _) => ('Offline', palette.danger.foreground),
+      null when state.isOutdated => ('Tidak aktif', palette.warning.foreground),
+      null when state.reading != null => ('Live', palette.success.foreground),
+      null => ('Menghubungkan', const Color(0xFFFFFFFF)),
+      _ => ('Offline', palette.danger.foreground),
     };
 
     return Container(
@@ -503,14 +507,16 @@ class _Banner extends StatelessWidget {
     required this.message,
     required this.icon,
     required this.tone,
-    required this.onRetry,
+    this.onRetry,
   });
 
   final String title;
   final String message;
   final IconData icon;
   final ToneColors tone;
-  final VoidCallback onRetry;
+
+  /// Null when retrying cannot help, e.g. nothing is set up yet.
+  final VoidCallback? onRetry;
 
   @override
   Widget build(BuildContext context) {
@@ -549,18 +555,21 @@ class _Banner extends StatelessWidget {
               ],
             ),
           ),
-          CupertinoButton(
-            padding: const EdgeInsets.symmetric(horizontal: AppSpacing.sm),
-            minimumSize: const Size(44, 44),
-            onPressed: onRetry,
-            child: Text(
-              'Coba lagi',
-              style: AppText.footnote.copyWith(
-                color: tone.foreground,
-                fontWeight: FontWeight.w700,
+          if (onRetry != null)
+            CupertinoButton(
+              padding: const EdgeInsets.symmetric(horizontal: AppSpacing.sm),
+              minimumSize: const Size(44, 44),
+              onPressed: onRetry,
+              child: Text(
+                'Coba lagi',
+                style: AppText.footnote.copyWith(
+                  color: tone.foreground,
+                  fontWeight: FontWeight.w700,
+                ),
               ),
-            ),
-          ),
+            )
+          else
+            const SizedBox(width: AppSpacing.sm),
         ],
       ),
     );

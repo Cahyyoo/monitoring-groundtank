@@ -128,6 +128,11 @@ class MonitorNotifier extends StateNotifier<MonitorState> {
     final generation = _generation;
     final source = _ref.read(tankSourceProvider);
     final config = _config;
+    // Nothing to read until a sensor is chosen; the dashboard says so.
+    if (!config.hasSensor) {
+      state = MonitorState(lastAlert: state.lastAlert);
+      return;
+    }
     state = MonitorState(lastAlert: state.lastAlert, isFetching: true);
 
     try {
@@ -162,7 +167,7 @@ class MonitorNotifier extends StateNotifier<MonitorState> {
   });
 
   Future<void> _fetch() async {
-    if (!mounted) return;
+    if (!mounted || !_config.hasSensor) return;
     final generation = _generation;
     state = state.copyWith(isFetching: true);
     try {

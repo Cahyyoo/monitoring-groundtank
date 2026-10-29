@@ -49,12 +49,10 @@ TankAlertKind? alertFor({
 Map<String, String> validateConfig(TankConfig c) {
   final errors = <String, String>{};
 
-  if (c.sourceMode == SourceMode.database) {
-    if (c.deviceId == null) {
-      errors['deviceId'] = 'Pilih perangkat yang memantau ground tank.';
-    } else if (c.sensorId == null) {
-      errors['sensorId'] = 'Pilih sensor ketinggian air pada perangkat itu.';
-    }
+  if (c.deviceId == null) {
+    errors['deviceId'] = 'Pilih perangkat yang memantau ground tank.';
+  } else if (c.sensorId == null) {
+    errors['sensorId'] = 'Pilih sensor ketinggian air pada perangkat itu.';
   }
   if (c.tankHeightCm <= 0) {
     errors['tankHeightCm'] = 'Tinggi tangki harus lebih dari 0.';

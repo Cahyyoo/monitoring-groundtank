@@ -37,8 +37,8 @@ Future<void> main() async {
 }
 
 /// Only when this build carries keys (`--dart-define-from-file=env.json`).
-/// A failure leaves the app usable in Demo: `supabaseClientProvider` reads
-/// as null and Settings explains why the database is unavailable.
+/// A failure leaves `supabaseClientProvider` reading as null, and the
+/// dashboard and Settings explain why there is no data.
 Future<void> _initSupabase() async {
   if (!Env.isSupabaseConfigured) return;
   try {

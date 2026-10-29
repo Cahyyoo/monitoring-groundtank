@@ -1,9 +1,10 @@
 # GroundTank — Monitoring Air Ground Tank
 
 Aplikasi Flutter untuk memantau ketinggian air di ground tank secara
-real-time, lengkap dengan notifikasi saat air **penuh** atau **kosong**. Data
-dibaca dari sensor ultrasonik (mis. ESP32 + JSN-SR04T) yang tersimpan di
-Supabase, atau dari mode **Demo** untuk mencoba tanpa perangkat.
+real-time, lengkap dengan notifikasi saat air **penuh** atau **kosong**. Semua
+data dibaca dari Supabase, yang diisi oleh perangkat sensor (mis. ESP32 +
+JSN-SR04T). Untuk mencoba tanpa perangkat, isi data dummy dari
+[`supabase/seed.sql`](supabase/seed.sql).
 
 ## Isi aplikasi
 
@@ -23,11 +24,15 @@ Supabase, atau dari mode **Demo** untuk mencoba tanpa perangkat.
   mengirim data.
 - Tarik ke bawah untuk memperbarui.
 
-Pill di kanan atas menunjukkan asal dan kesegaran data:
+Bila perangkat dan sensor belum dipilih, dashboard menampilkan pesan
+**Sensor belum dipilih** dan belum membaca apa pun.
+
+Pill di kanan atas menunjukkan kesegaran data:
 
 | Pill | Arti |
 |---|---|
-| **Demo** | Data simulasi |
+| **Belum diatur** | Perangkat dan sensor belum dipilih di Pengaturan |
+| **Menghubungkan** | Sedang mengambil data pertama |
 | **Live** | Membaca Supabase, data terbaru berumur < 2 menit |
 | **Tidak aktif** | Membaca Supabase, tetapi perangkat tidak mengirim data > 2 menit |
 | **Offline** | Gagal menghubungi Supabase (alasannya tampil di banner) |
@@ -46,13 +51,13 @@ Pill di kanan atas menunjukkan asal dan kesegaran data:
 
 | Bagian | Isi |
 |---|---|
-| **Sumber data** | *Demo* atau *Database (Supabase)*. Untuk Database: pilih **Perangkat**, **Sensor ketinggian**, **arti nilai**, lalu **Uji koneksi** |
+| **Sensor (Supabase)** | Pilih **Perangkat**, **Sensor ketinggian**, dan **arti nilai**, lalu **Uji koneksi**. Wajib diisi sebelum pengaturan bisa disimpan |
 | **Dimensi tangki** | Tinggi air maksimum (cm), jarak sensor ke dasar (cm), kapasitas (L) |
 | **Ambang & pembaruan** | Batas penuh (default 90%), batas kosong (default 15%), interval pembaruan (default 5 detik) |
 | **Notifikasi** | Aktif/nonaktif peringatan, pantau di latar belakang (Android), kirim notifikasi uji |
 | **Tampilan** | Ikuti sistem / Terang / Gelap |
 
-> Perubahan Sumber data, Dimensi tangki, Ambang, dan Notifikasi baru berlaku
+> Perubahan Sensor, Dimensi tangki, Ambang, dan Notifikasi baru berlaku
 > setelah menekan **Simpan pengaturan** di bagian bawah. Tampilan berlaku
 > langsung.
 
@@ -136,9 +141,9 @@ mencoba tanpa perangkat. Aman dijalankan ulang. Di bagian bawahnya ada contoh
 `insert` untuk memicu notifikasi dan perintah untuk menghapus data dummy.
 
 ### 4. Hubungkan aplikasi
-**Pengaturan → Sumber data → Database (Supabase) → Perangkat → Sensor
-ketinggian → Uji koneksi → Simpan pengaturan.** Subjudul di dashboard berubah
-menjadi nama perangkat.
+**Pengaturan → Sensor (Supabase) → Perangkat → Sensor ketinggian → Uji
+koneksi → Simpan pengaturan.** Subjudul di dashboard berubah menjadi nama
+perangkat.
 
 ## Menjalankan
 
@@ -151,8 +156,8 @@ flutter build apk --release --dart-define-from-file=env.json
 ```
 
 - Di VS Code, pilih konfigurasi **GroundTank** (`.vscode/launch.json`).
-- Tanpa `env.json`, aplikasi berjalan dalam mode Demo, dan opsi Database
-  ditandai "Belum dikonfigurasi".
+- `env.json` wajib: tanpa kunci Supabase aplikasi tidak punya sumber data, dan
+  Pengaturan menampilkan "Supabase belum dikonfigurasi".
 - Setelah mengubah `env.json`, hentikan lalu jalankan ulang aplikasi; hot
   reload tidak membaca ulang kunci.
 - `env.json` diabaikan git. Publishable/anon key aman berada di aplikasi
@@ -166,7 +171,7 @@ lib/
   config/       # kunci Supabase dari --dart-define-from-file
   models/       # konfigurasi tangki, pembacaan, status, baris tabel Supabase
   services/     # konversi nilai & aturan status (logika murni, diuji),
-                # query Supabase (TankRepository), sumber data Demo/Database,
+                # query Supabase (TankRepository), sumber data,
                 # evaluasi notifikasi, penyimpanan lokal, format teks
   providers/    # state: konfigurasi, monitor (riwayat + Realtime + polling),
                 # database, riwayat notifikasi, tema

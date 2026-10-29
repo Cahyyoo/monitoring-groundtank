@@ -1,4 +1,4 @@
-# Panduan IoT Engineer — Mengirim Data Ketinggian Air ke GroundTank
+# Panduan — Mengirim Data Ketinggian Air ke GroundTank
 
 Dokumen ini adalah **kontrak** antara firmware perangkat (mis. ESP32 + sensor
 ultrasonik) dan aplikasi GroundTank. Selama perangkat mengikuti aturan di sini,

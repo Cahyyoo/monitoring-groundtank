@@ -185,13 +185,16 @@ void main() {
     });
   });
 
-  test('a configuration saved with the removed HTTP source loads as demo', () {
+  test('a configuration saved by an older version keeps its settings', () {
     final config = TankConfig.fromJson({
-      'sourceMode': 'http',
+      'sourceMode': 'demo',
       'endpointUrl': 'http://192.168.1.50/api/level',
+      'deviceId': 'device-1',
+      'sensorId': 'sensor-1',
       'fullThreshold': 85,
     });
-    expect(config.sourceMode, SourceMode.demo);
+    expect(config.hasSensor, isTrue);
     expect(config.fullThreshold, 85);
+    expect(config.toJson().keys, isNot(contains('sourceMode')));
   });
 }

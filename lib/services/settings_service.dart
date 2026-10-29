@@ -32,7 +32,7 @@ class SettingsService {
       );
     } catch (_) {
       // An unreadable store must not keep the app from starting; the defaults
-      // are a working (demo) setup.
+      // only ask for a sensor to be chosen again.
       return const TankConfig();
     }
   }
