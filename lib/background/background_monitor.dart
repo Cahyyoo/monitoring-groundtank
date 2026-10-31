@@ -15,6 +15,9 @@ import '../services/tank_source.dart';
 const _uniqueName = 'groundtank-periodic-check';
 const _taskName = 'groundtank.check';
 
+/// Android's minimum for periodic work.
+const _period = Duration(minutes: 15);
+
 /// Runs in its own isolate whenever Android's WorkManager decides the
 /// periodic check is due — at best every 15 minutes, later when the phone is
 /// dozing. Must stay a top-level function marked as an entry point, or the
@@ -64,26 +67,40 @@ class BackgroundMonitor {
 
   static bool get isSupported => !kIsWeb && Platform.isAndroid;
 
+  /// A platform call that has not answered by then is not coming back soon.
+  static const _callTimeout = Duration(seconds: 10);
+
   static Future<void> sync(TankConfig config) async {
     if (!isSupported) return;
     try {
       if (!_initialised) {
-        await Workmanager().initialize(backgroundDispatcher);
+        await Workmanager()
+            .initialize(backgroundDispatcher)
+            .timeout(_callTimeout);
         _initialised = true;
       }
       if (!_shouldRun(config)) {
-        await Workmanager().cancelByUniqueName(_uniqueName);
+        await Workmanager()
+            .cancelByUniqueName(_uniqueName)
+            .timeout(_callTimeout);
         return;
       }
-      await Workmanager().registerPeriodicTask(
-        _uniqueName,
-        _taskName,
-        frequency: const Duration(minutes: 15),
-        // `update` so a changed source takes effect without waiting out the
-        // old schedule.
-        existingWorkPolicy: ExistingPeriodicWorkPolicy.update,
-        constraints: Constraints(networkType: NetworkType.connected),
-      );
+      await Workmanager()
+          .registerPeriodicTask(
+            _uniqueName,
+            _taskName,
+            frequency: _period,
+            // Without a delay the first run starts at once, booting a second
+            // Flutter engine on the main thread while the dashboard, which
+            // polls by itself, is in use.
+            initialDelay: _period,
+            // `keep` so the sync at every launch does not restart the clock.
+            // The worker reads the saved configuration on each run, so a new
+            // sensor or threshold needs no re-registration.
+            existingWorkPolicy: ExistingPeriodicWorkPolicy.keep,
+            constraints: Constraints(networkType: NetworkType.connected),
+          )
+          .timeout(_callTimeout);
     } catch (e) {
       debugPrint('Could not schedule background check: $e');
     }

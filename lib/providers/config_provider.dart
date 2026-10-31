@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../background/background_monitor.dart';
@@ -24,7 +26,13 @@ class ConfigNotifier extends StateNotifier<TankConfig> {
       await SettingsService.clearLastLevel();
     }
     state = next;
-    await BackgroundMonitor.sync(next);
+    // The worker reads the saved configuration on every run, so only turning
+    // it on or off needs the schedule touched. Not awaited: a slow platform
+    // call must not keep the Save button spinning.
+    if (previous.backgroundEnabled != next.backgroundEnabled ||
+        previous.hasSensor != next.hasSensor) {
+      unawaited(BackgroundMonitor.sync(next));
+    }
   }
 }
 

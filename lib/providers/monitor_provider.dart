@@ -120,6 +120,9 @@ class MonitorNotifier extends StateNotifier<MonitorState> {
     _timer = null;
     unawaited(_subscription?.cancel());
     _subscription = null;
+    // A fetch begun for the old source is discarded when it lands; the new
+    // one must not wait on it.
+    _inFlight = null;
   }
 
   Future<void> _start() async {
@@ -162,9 +165,16 @@ class MonitorNotifier extends StateNotifier<MonitorState> {
 
   /// One fetch now. A call while one is already running joins it rather than
   /// starting a second, so a pull-to-refresh during a tick does not double up.
-  Future<void> refresh() => _inFlight ??= _fetch().whenComplete(() {
-    _inFlight = null;
-  });
+  Future<void> refresh() {
+    final running = _inFlight;
+    if (running != null) return running;
+    late final Future<void> started;
+    started = _fetch().whenComplete(() {
+      // Only clear our own entry; [_stop] may already have replaced it.
+      if (identical(_inFlight, started)) _inFlight = null;
+    });
+    return _inFlight = started;
+  }
 
   Future<void> _fetch() async {
     if (!mounted || !_config.hasSensor) return;

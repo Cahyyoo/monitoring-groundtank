@@ -159,20 +159,30 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       return;
     }
     setState(() => _saving = true);
-    if (config.notificationsEnabled && !_saved.notificationsEnabled) {
-      await NotificationService.requestPermission();
+    try {
+      if (config.notificationsEnabled && !_saved.notificationsEnabled) {
+        await NotificationService.requestPermission();
+      }
+      await ref.read(configProvider.notifier).save(config);
+      if (!mounted) return;
+      setState(() => _fill(config));
+      AppToast.show(
+        context,
+        'Pengaturan disimpan',
+        icon: CupertinoIcons.checkmark_circle,
+      );
+    } catch (e) {
+      debugPrint('Could not save settings: $e');
+      if (!mounted) return;
+      AppToast.show(
+        context,
+        'Gagal menyimpan pengaturan. Coba lagi.',
+        icon: CupertinoIcons.xmark_circle,
+      );
+    } finally {
+      // Whatever happened, the button must not keep spinning.
+      if (mounted) setState(() => _saving = false);
     }
-    await ref.read(configProvider.notifier).save(config);
-    if (!mounted) return;
-    setState(() {
-      _saving = false;
-      _fill(config);
-    });
-    AppToast.show(
-      context,
-      'Pengaturan disimpan',
-      icon: CupertinoIcons.checkmark_circle,
-    );
   }
 
   Future<void> _testConnection() async {

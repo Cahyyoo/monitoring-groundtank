@@ -54,6 +54,16 @@ class _PushSource extends TankSource {
   Stream<TankReading>? watch() => pushes.stream;
 }
 
+/// A source whose single reading arrives when [reading] completes.
+class _GatedSource extends TankSource {
+  _GatedSource(this.reading);
+
+  final Future<TankReading> reading;
+
+  @override
+  Future<TankReading> fetch() => reading;
+}
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
@@ -101,6 +111,37 @@ void main() {
     final state = container.read(monitorProvider);
     expect(state.reading?.percent, 50);
     expect(state.isOutdated, isTrue);
+  });
+
+  test('a new sensor is read at once, not after the old fetch', () async {
+    SharedPreferences.setMockInitialValues({});
+    // The first device's request hangs, as on a slow connection.
+    final hanging = Completer<TankReading>();
+    final container = ProviderContainer(
+      overrides: [
+        configProvider.overrideWith((ref) => ConfigNotifier(_withSensor)),
+        tankSourceProvider.overrideWith(
+          (ref) => ref.watch(configProvider).deviceId == 'device-1'
+              ? _GatedSource(hanging.future)
+              : _GatedSource(Future.value(_reading(60, DateTime.now()))),
+        ),
+      ],
+    );
+    addTearDown(container.dispose);
+
+    container.read(monitorProvider);
+    await pumpEventQueue();
+    expect(container.read(monitorProvider).isFetching, isTrue);
+
+    await container
+        .read(configProvider.notifier)
+        .save(_withSensor.copyWith(deviceId: () => 'device-2'));
+    await pumpEventQueue();
+
+    final state = container.read(monitorProvider);
+    expect(state.reading?.percent, 60);
+    expect(state.isFetching, isFalse);
+    hanging.complete(_reading(10, DateTime.now()));
   });
 
   test('reads nothing until a sensor is chosen', () async {
