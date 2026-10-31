@@ -92,7 +92,8 @@ Opsional, sebagai penanda tangki penuh. Perangkat mengirim `1` saat pelampung
 terangkat dan `0` saat turun, ke sensor tersendiri pada perangkat yang sama
 (aturannya di [`firmware/README.md`](firmware/README.md#41-sensor-pelampung-opsional)).
 Pilih di **Pengaturan tangki → Sensor pelampung**. Sensor pelampung harus
-berbeda dari sensor ketinggian.
+berbeda dari sensor ketinggian. Di data dummy, sensor pelampung adalah
+*Float switch* dengan `sensor_id` `b2000000-0000-4000-8000-000000000004`.
 
 #### Dimensi tangki
 
@@ -178,6 +179,20 @@ di [`firmware/README.md`](firmware/README.md).
 hampir kosong), dan pengaturan bersama contoh bila belum ada. Aman dijalankan
 ulang. Di bagian bawahnya ada contoh `insert` untuk memicu notifikasi dan
 perintah untuk menghapus data dummy.
+
+ID tetap di data dummy:
+
+| Baris | Nama | ID |
+|---|---|---|
+| Perangkat | ESP32 Ground Tank | `a1000000-0000-4000-8000-000000000001` |
+| Perangkat | ESP32 Toren Atas | `a1000000-0000-4000-8000-000000000002` |
+| Sensor ketinggian | Ultrasonic JSN-SR04T (cm) | `b2000000-0000-4000-8000-000000000001` |
+| Sensor lain | Suhu air DS18B20 (°C) | `b2000000-0000-4000-8000-000000000002` |
+| Sensor ketinggian | Level toren (%) | `b2000000-0000-4000-8000-000000000003` |
+| **Sensor pelampung** | Float switch (1 = penuh, 0 = belum) | `b2000000-0000-4000-8000-000000000004` |
+
+Ultrasonic, suhu, dan pelampung terpasang di **ESP32 Ground Tank**; Level
+toren di **ESP32 Toren Atas**.
 
 ### 5. Hubungkan aplikasi
 **Pengaturan → Buka kunci untuk mengubah (PIN admin) → Perangkat → Sensor

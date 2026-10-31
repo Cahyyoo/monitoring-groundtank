@@ -155,6 +155,19 @@ walaupun sensor ultrasonik menunjukkan angka di bawah batas penuh.
 5. Pakai `p_device_id` dan `p_token` yang sama dengan sensor ketinggian. Yang
    berbeda hanya `p_sensor_id`.
 
+Contoh body untuk pelampung terangkat. ID-nya milik data dummy
+(`supabase/seed.sql`); di produksi pakai `FLOAT_SENSOR_ID` dari admin.
+
+```json
+{
+  "p_device_id": "a1000000-0000-4000-8000-000000000001",
+  "p_sensor_id": "b2000000-0000-4000-8000-000000000004",
+  "p_value": "1",
+  "p_token": "<DEVICE_TOKEN>",
+  "p_ip": "192.168.1.50"
+}
+```
+
 ---
 
 ## 5. Aturan pengiriman
