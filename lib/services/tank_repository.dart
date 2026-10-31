@@ -2,17 +2,20 @@ import 'dart:async';
 import 'dart:io' show SocketException;
 
 import 'package:flutter/foundation.dart' show debugPrint;
-import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:supabase/supabase.dart';
 
 import '../models/device.dart';
 import '../models/sensor.dart';
+import '../models/shared_settings.dart';
 import '../models/sensor_reading.dart';
 import 'tank_source.dart' show TankSourceException;
 
 /// Every query the app makes against the Supabase project, and nothing else.
 ///
-/// Read-only by design: the app never writes to the sensor tables, so the
+/// Read-only by design: the app never writes to a table, so the
 /// row-level-security policies in `supabase/setup.sql` grant SELECT only.
+/// The shared settings change through `update_tank_settings`, a function
+/// that checks the admin PIN itself.
 class TankRepository {
   TankRepository(this._client);
 
@@ -108,6 +111,92 @@ class TankRepository {
     return controller.stream;
   }
 
+  /// The settings every phone shares, or null when none have been saved.
+  Future<SharedSettings?> fetchSharedSettings() => _guard(() async {
+    final row = await _client
+        .from('tank_settings')
+        .select(SharedSettings.columns)
+        .eq('id', 1)
+        .maybeSingle();
+    return row == null ? null : SharedSettings.fromRow(row);
+  });
+
+  /// Fires whenever the shared row changes, so the phone can refetch it with
+  /// the names embedded. Silent without `tank_settings` in the Realtime
+  /// publication; the phone then picks changes up when it is reopened.
+  Stream<void> watchSharedSettings() {
+    late final RealtimeChannel channel;
+    final controller = StreamController<void>();
+
+    controller
+      ..onListen = () {
+        channel = _client
+            .channel('tank_settings')
+            .onPostgresChanges(
+              event: PostgresChangeEvent.all,
+              schema: 'public',
+              table: 'tank_settings',
+              callback: (_) {
+                if (!controller.isClosed) controller.add(null);
+              },
+            )
+            .subscribe();
+      }
+      ..onCancel = () async {
+        await _client.removeChannel(channel);
+        await controller.close();
+      };
+
+    return controller.stream;
+  }
+
+  /// Completes when [pin] is the admin PIN; otherwise throws with the reason.
+  Future<void> verifySettingsPin(String pin) => _guard(() async {
+    final status = await _client.rpc<Object?>(
+      'verify_settings_pin',
+      params: {'p_pin': pin},
+    );
+    _throwUnlessOk(status);
+  });
+
+  /// Saves [settings] for every phone, if [pin] is the admin PIN.
+  Future<void> updateSharedSettings(String pin, SharedSettings settings) =>
+      _guard(() async {
+        final status = await _client.rpc<Object?>(
+          'update_tank_settings',
+          params: settings.rpcParams(pin),
+        );
+        _throwUnlessOk(status);
+      });
+
+  /// The settings functions answer with a status rather than an error, so a
+  /// wrong PIN is still counted towards the lockout.
+  static void _throwUnlessOk(Object? status) {
+    if (status == 'ok') return;
+    final message = switch (status) {
+      'wrong_pin' => 'PIN salah.',
+      'locked' => 'Terlalu banyak PIN salah. Coba lagi dalam 5 menit.',
+      'no_pin' =>
+        'PIN admin belum dibuat. Buat dulu di Supabase (lihat README).',
+      final String s when s.startsWith('invalid:') =>
+        'Server menolak pengaturan: ${_fieldLabel(s.substring(8))} tidak valid.',
+      _ => 'Jawaban server tidak dikenal: $status',
+    };
+    throw TankSourceException(message);
+  }
+
+  static String _fieldLabel(String field) => switch (field) {
+    'device_id' => 'perangkat',
+    'level_sensor_id' => 'sensor ketinggian',
+    'float_sensor_id' => 'sensor pelampung',
+    'value_kind' => 'arti nilai',
+    'tank_height_cm' => 'tinggi air maksimum',
+    'sensor_to_bottom_cm' => 'jarak sensor ke dasar',
+    'capacity_liters' => 'kapasitas',
+    'thresholds' => 'batas penuh/kosong',
+    _ => field,
+  };
+
   PostgrestFilterBuilder<List<Map<String, dynamic>>> _query(
     String deviceId,
     String sensorId,
@@ -121,6 +210,8 @@ class TankRepository {
   static Future<T> _guard<T>(Future<T> Function() run) async {
     try {
       return await run().timeout(const Duration(seconds: 10));
+    } on TankSourceException {
+      rethrow; // Already worded for the screen.
     } on TimeoutException {
       throw const TankSourceException(
         'Database tidak merespons. Periksa koneksi internet.',
@@ -132,6 +223,12 @@ class TankRepository {
       if (e.code == '42501' || e.code == 'PGRST301') {
         throw const TankSourceException(
           'Akses ditolak database. Jalankan kebijakan RLS di supabase/setup.sql.',
+        );
+      }
+      // A table or function setup.sql creates is not there yet.
+      if (e.code == 'PGRST202' || e.code == 'PGRST205' || e.code == '42P01') {
+        throw const TankSourceException(
+          'Database belum disiapkan. Jalankan supabase/setup.sql di Supabase.',
         );
       }
       throw TankSourceException('Gagal membaca database: ${e.message}');

@@ -1,20 +1,18 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:supabase/supabase.dart';
 
 import '../config/env.dart';
 import '../models/device.dart';
 import '../models/sensor.dart';
 import '../services/tank_repository.dart';
 
-/// Null when this build has no Supabase keys, or initialising failed; every
-/// read then explains that instead. Overridden in tests.
+/// Null when this build has no Supabase keys; every read then explains that
+/// instead. One client for the app's lifetime. Overridden in tests.
 final supabaseClientProvider = Provider<SupabaseClient?>((ref) {
   if (!Env.isSupabaseConfigured) return null;
-  try {
-    return Supabase.instance.client;
-  } catch (_) {
-    return null;
-  }
+  final client = Env.createSupabaseClient();
+  ref.onDispose(client.dispose);
+  return client;
 });
 
 final tankRepositoryProvider = Provider<TankRepository?>((ref) {

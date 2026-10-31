@@ -97,7 +97,11 @@ class NotificationService {
     }
   }
 
-  static Future<void> showAlert(TankAlertKind kind, double percent) async {
+  static Future<void> showAlert(
+    TankAlertKind kind,
+    double percent, {
+    bool byFloat = false,
+  }) async {
     await init();
     if (!_ready) return;
     final other = kind == TankAlertKind.full
@@ -108,7 +112,7 @@ class NotificationService {
       await _plugin.show(
         id: _idFor(kind),
         title: Format.alertTitle(kind),
-        body: Format.alertBody(kind, percent),
+        body: Format.alertBody(kind, percent, byFloat: byFloat),
         notificationDetails: _details(),
       );
     } catch (e) {

@@ -28,7 +28,12 @@ class TankEvaluator {
     TankConfig config,
   ) async {
     final previous = await SettingsService.getLastLevel();
-    final level = classifyLevel(reading.percent, config, previous: previous);
+    final level = classifyLevel(
+      reading.percent,
+      config,
+      previous: previous,
+      floatFull: reading.floatFull,
+    );
     final kind = alertFor(previous: previous, current: level);
 
     if (level != previous) await SettingsService.setLastLevel(level);
@@ -41,7 +46,13 @@ class TankEvaluator {
     );
     await SettingsService.addAlert(entry);
     if (config.notificationsEnabled) {
-      await NotificationService.showAlert(kind, reading.percent);
+      await NotificationService.showAlert(
+        kind,
+        reading.percent,
+        // Full by the float alone: say so, or the percent looks contradictory.
+        byFloat:
+            reading.floatFull == true && reading.percent < config.fullThreshold,
+      );
     }
     return Evaluation(level, entry);
   }

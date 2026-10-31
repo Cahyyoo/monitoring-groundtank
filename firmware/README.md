@@ -38,6 +38,7 @@ Istilah yang dipakai:
 | `SUPABASE_KEY` | `sb_publishable_…` | Publishable key (atau anon key lama `eyJ…`) |
 | `DEVICE_ID` | `a1000000-0000-4000-8000-000000000001` | `devices.id` perangkat ini |
 | `SENSOR_ID` | `b2000000-0000-4000-8000-000000000001` | `sensors.id` sensor ketinggian pada perangkat ini |
+| `FLOAT_SENSOR_ID` | `b2000000-0000-4000-8000-000000000004` | Opsional: `sensors.id` sensor pelampung (float switch), lihat [4.1](#41-sensor-pelampung-opsional) |
 | `DEVICE_TOKEN` | 48 karakter hex | Token rahasia **khusus perangkat ini** |
 | Satuan sensor | `cm` | Isi kolom `sensors.unit`; nilai harus dikirim dalam satuan ini |
 
@@ -131,7 +132,28 @@ Hasil yang benar: `HTTP/2 204`.
 6. **DILARANG** mengirim timestamp. Waktu diisi server.
 7. Satu perangkat dengan beberapa sensor (mis. ultrasonik + suhu) memakai
    **token yang sama** dengan `p_sensor_id` berbeda. Aplikasi hanya
-   menampilkan sensor yang dipilih sebagai sensor ketinggian.
+   menampilkan sensor yang dipilih sebagai sensor ketinggian dan sensor
+   pelampung.
+
+### 4.1 Sensor pelampung (opsional)
+
+Pelampung (float switch) adalah penanda **tangki penuh**. Bila pelampung
+terangkat, aplikasi menganggap tangki **penuh** dan mengirim notifikasi,
+walaupun sensor ultrasonik menunjukkan angka di bawah batas penuh.
+
+1. **WAJIB** kirim ke `FLOAT_SENSOR_ID` dengan nilai **`"1"` saat pelampung
+   terangkat (air penuh)** dan **`"0"` saat turun**. Arti ini tetap, apa pun
+   cara pemasangannya. Untuk pelampung NC (normally closed) atau input
+   dengan pull-up, **balik logikanya di firmware** sehingga tetap 1 = penuh.
+2. **DILARANG** mengirim `"HIGH"`, `"ON"`, `"true"`, dan sejenisnya. Server
+   hanya menerima angka.
+3. **WAJIB** dikirim **setiap siklus**, bersama pembacaan ketinggian dengan
+   interval yang sama (bagian 5.1), bukan hanya saat berubah. Dengan begitu
+   aplikasi tahu status pelampung masih terbaru.
+4. **WAJIB** debounce: baca pin beberapa kali selama ±1 detik dan kirim hanya
+   bila hasilnya stabil. Riak air membuat kontak pelampung bergetar.
+5. Pakai `p_device_id` dan `p_token` yang sama dengan sensor ketinggian. Yang
+   berbeda hanya `p_sensor_id`.
 
 ---
 
@@ -208,13 +230,18 @@ heartbeat terpisah.
 
 - Bila modul sensor diberi daya 5V, **WAJIB** memasang pembagi tegangan pada
   pin ECHO, karena pin ESP32 hanya tahan 3,3V.
-- Setelah pemasangan, **WAJIB** melaporkan ke pengguna aplikasi:
+- Bila memakai pelampung, **DISARANKAN** memasangnya sedikit di atas batas
+  penuh (mis. setara 95%), agar pelampung menjadi pengaman terakhir sebelum
+  meluap. Laporkan ketinggiannya ke admin.
+- Setelah pemasangan, **WAJIB** melaporkan ke admin aplikasi:
   - **Jarak sensor ke dasar** tangki (cm), diukur dari permukaan sensor ke
     lantai tangki.
   - **Tinggi air maksimum** yang dianggap 100% (cm).
   - **Kapasitas** tangki pada tinggi itu (liter).
 
-  Ketiga angka ini diisi di aplikasi: Pengaturan → Dimensi tangki.
+  Ketiga angka ini diisi admin di aplikasi: **Pengaturan → Buka kunci (PIN
+  admin) → Dimensi tangki → Simpan untuk semua HP**. Nilainya berlaku untuk
+  semua HP.
 
 ---
 
@@ -233,7 +260,9 @@ heartbeat terpisah.
       cepat.
 - [ ] Sertifikat server diverifikasi (bukan `setInsecure()`).
 - [ ] Token dan password tidak tercetak di log dan tidak ada di repository.
-- [ ] Dimensi tangki (bagian 7) sudah diserahkan ke pengguna aplikasi.
+- [ ] Bila ada pelampung: mengangkat pelampung dengan tangan mengirim `"1"`
+      dan aplikasi menjadi **Penuh**; melepasnya mengirim `"0"`.
+- [ ] Dimensi tangki (bagian 7) sudah diserahkan ke admin aplikasi.
 
 Query untuk memeriksa data masuk:
 
@@ -333,8 +362,10 @@ grant execute on function public.submit_reading(uuid, uuid, text, text, text)
 Pastikan perangkat ada di `devices`, sensor ada di `sensors`, dan keduanya
 terhubung di `device_sensors`. Untuk sensor ultrasonik, isi `unit = 'cm'` dan
 nama yang memuat *Ultrasonic*, *JSN-SR04T*, atau *jarak*, agar aplikasi
-otomatis membaca nilainya sebagai jarak. Daftar ID untuk diserahkan ke IoT
-engineer:
+otomatis membaca nilainya sebagai jarak. Untuk pelampung, daftarkan sebagai
+sensor tersendiri (mis. `name = 'Float switch'`, `unit` kosong,
+`data_type = 'boolean'`) dan hubungkan ke perangkat yang sama. Daftar ID untuk
+diserahkan ke IoT engineer:
 
 ```sql
 select d.name as device, d.id as device_id, s.name as sensor, s.id as sensor_id, s.unit

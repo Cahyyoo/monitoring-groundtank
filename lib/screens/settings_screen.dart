@@ -4,11 +4,12 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../background/background_monitor.dart';
-import '../models/tank_config.dart';
 import '../models/device.dart';
 import '../models/sensor.dart';
+import '../models/tank_config.dart';
 import '../providers/config_provider.dart';
 import '../providers/database_providers.dart';
+import '../providers/shared_settings_provider.dart';
 import '../providers/theme_provider.dart';
 import '../services/format.dart';
 import '../services/notification_service.dart';
@@ -16,18 +17,25 @@ import '../services/reading_conversion.dart';
 import '../services/tank_rules.dart';
 import '../services/tank_source.dart';
 import '../theme/app_theme.dart';
+import '../widgets/app_primitives.dart';
 import '../widgets/ios/app_button.dart';
 import '../widgets/ios/app_page.dart';
 import '../widgets/ios/app_toast.dart';
 import '../widgets/ios/inset_section.dart';
+import '../widgets/ios/pin_dialog.dart';
 import 'device_picker_screen.dart';
 import 'sensor_picker_screen.dart';
 
-/// The device and sensor to read, the tank's dimensions, the thresholds, and appearance.
+/// Two kinds of settings, saved two ways.
 ///
-/// Tank settings are edited as a draft and applied together with one button,
-/// because a half-typed threshold must not start raising notifications.
-/// Appearance applies at once, as in Atara.
+/// The tank — device, sensors, dimensions, thresholds — is shared by every
+/// phone through Supabase and locked: it can be looked at freely, and edited
+/// only after the admin PIN is checked by the server. This phone's own
+/// choices — polling, notifications, background — are saved on the phone.
+///
+/// Both are edited as drafts and applied with a button, because a
+/// half-typed threshold must not start raising notifications. Appearance
+/// applies at once.
 class SettingsScreen extends ConsumerStatefulWidget {
   const SettingsScreen({super.key});
 
@@ -36,52 +44,91 @@ class SettingsScreen extends ConsumerStatefulWidget {
 }
 
 class _SettingsScreenState extends ConsumerState<SettingsScreen> {
+  static const _sharedKeys = {
+    'deviceId',
+    'sensorId',
+    'floatSensorId',
+    'tankHeightCm',
+    'sensorToBottomCm',
+    'capacityLiters',
+    'fullThreshold',
+    'emptyThreshold',
+  };
+
+  /// The configuration in effect, kept current while the screen is open.
   late TankConfig _saved;
-  late bool _notifications;
-  late bool _background;
+
+  // Shared draft.
   String? _deviceId;
   String? _deviceName;
   String? _sensorId;
   String? _sensorName;
   String? _sensorUnit;
+  String? _floatSensorId;
+  String? _floatSensorName;
   late ValueKind _valueKind;
-
   final _height = TextEditingController();
   final _sensor = TextEditingController();
   final _capacity = TextEditingController();
   final _full = TextEditingController();
   final _empty = TextEditingController();
+
+  // This phone's draft.
+  late bool _notifications;
+  late bool _background;
   final _poll = TextEditingController();
 
+  /// The PIN the server accepted, held only in memory while unlocked.
+  String? _pin;
+
   Map<String, String> _errors = const {};
-  bool _dirty = false;
-  bool _saving = false;
+  bool _sharedDirty = false;
+  bool _localDirty = false;
+  bool _savingShared = false;
+  bool _savingLocal = false;
+  bool _unlocking = false;
   bool _testing = false;
+
+  bool get _unlocked => _pin != null;
 
   @override
   void initState() {
     super.initState();
-    _fill(ref.read(configProvider));
+    _saved = ref.read(configProvider);
+    _fillShared(_saved);
+    _fillLocal(_saved);
   }
 
-  void _fill(TankConfig c) {
-    _saved = c;
-    _notifications = c.notificationsEnabled;
-    _background = c.backgroundEnabled;
+  void _fillShared(TankConfig c) {
     _deviceId = c.deviceId;
     _deviceName = c.deviceName;
     _sensorId = c.sensorId;
     _sensorName = c.sensorName;
     _sensorUnit = c.sensorUnit;
+    _floatSensorId = c.floatSensorId;
+    _floatSensorName = c.floatSensorName;
     _valueKind = c.valueKind;
     _height.text = _plain(c.tankHeightCm);
     _sensor.text = _plain(c.sensorToBottomCm);
     _capacity.text = _plain(c.capacityLiters);
     _full.text = '${c.fullThreshold}';
     _empty.text = '${c.emptyThreshold}';
+    _sharedDirty = false;
+    _errors = {
+      for (final e in _errors.entries)
+        if (!_sharedKeys.contains(e.key)) e.key: e.value,
+    };
+  }
+
+  void _fillLocal(TankConfig c) {
+    _notifications = c.notificationsEnabled;
+    _background = c.backgroundEnabled;
     _poll.text = '${c.pollSeconds}';
-    _errors = const {};
-    _dirty = false;
+    _localDirty = false;
+    _errors = {
+      for (final e in _errors.entries)
+        if (_sharedKeys.contains(e.key)) e.key: e.value,
+    };
   }
 
   static String _plain(double v) =>
@@ -95,17 +142,25 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     super.dispose();
   }
 
-  void _touch() {
-    if (!_dirty || _errors.isNotEmpty) {
-      setState(() {
-        _dirty = true;
-        _errors = const {};
-      });
-    }
+  void _touchShared() {
+    setState(() {
+      _sharedDirty = true;
+      _errors = {
+        for (final e in _errors.entries)
+          if (!_sharedKeys.contains(e.key)) e.key: e.value,
+      };
+    });
   }
 
-  /// The draft as a configuration, or the fields that are not numbers.
-  (TankConfig?, Map<String, String>) _draft() {
+  void _touchLocal() {
+    setState(() {
+      _localDirty = true;
+      _errors = Map.of(_errors)..remove('pollSeconds');
+    });
+  }
+
+  /// The shared draft over the configuration in effect, or why it is wrong.
+  (TankConfig?, Map<String, String>) _sharedDraft() {
     final bad = <String, String>{};
     double? dbl(TextEditingController c, String key) {
       final v = double.tryParse(c.text.trim().replaceAll(',', '.'));
@@ -124,7 +179,6 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     final capacity = dbl(_capacity, 'capacityLiters');
     final full = whole(_full, 'fullThreshold');
     final empty = whole(_empty, 'emptyThreshold');
-    final poll = whole(_poll, 'pollSeconds');
     if (bad.isNotEmpty) return (null, bad);
 
     final config = _saved.copyWith(
@@ -133,42 +187,119 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       sensorId: () => _sensorId,
       sensorName: () => _sensorName,
       sensorUnit: () => _sensorUnit,
+      floatSensorId: () => _floatSensorId,
+      floatSensorName: () => _floatSensorName,
       valueKind: _valueKind,
       tankHeightCm: height,
       sensorToBottomCm: sensor,
       capacityLiters: capacity,
       fullThreshold: full,
       emptyThreshold: empty,
+    );
+    final errors = {
+      for (final e in validateConfig(config).entries)
+        if (_sharedKeys.contains(e.key)) e.key: e.value,
+    };
+    return (errors.isEmpty ? config : null, errors);
+  }
+
+  /// This phone's draft over the configuration in effect, or why it is wrong.
+  (TankConfig?, Map<String, String>) _localDraft() {
+    final poll = int.tryParse(_poll.text.trim());
+    if (poll == null) {
+      return (null, {'pollSeconds': 'Isi dengan bilangan bulat.'});
+    }
+    final config = _saved.copyWith(
       pollSeconds: poll,
       notificationsEnabled: _notifications,
       backgroundEnabled: _background,
     );
-    final errors = validateConfig(config);
-    return (errors.isEmpty ? config : null, errors);
+    final error = validateConfig(config)['pollSeconds'];
+    return error == null ? (config, const {}) : (null, {'pollSeconds': error});
   }
 
-  Future<void> _save() async {
-    final (config, errors) = _draft();
-    if (config == null) {
-      setState(() => _errors = errors);
+  void _showInvalid(Map<String, String> errors) {
+    setState(() => _errors = {..._errors, ...errors});
+    AppToast.show(
+      context,
+      'Periksa kembali isian yang ditandai merah.',
+      icon: CupertinoIcons.exclamationmark_circle,
+    );
+  }
+
+  Future<void> _unlock() async {
+    final pin = await showPinDialog(
+      context,
+      title: 'Buka kunci pengaturan',
+      message: 'Perubahan berlaku untuk semua HP yang memakai aplikasi ini.',
+    );
+    if (pin == null || !mounted) return;
+    setState(() => _unlocking = true);
+    try {
+      await ref.read(sharedSettingsProvider.notifier).verifyPin(pin);
+      if (!mounted) return;
+      setState(() => _pin = pin);
+      AppToast.show(context, 'Kunci dibuka', icon: CupertinoIcons.lock_open);
+    } on TankSourceException catch (e) {
+      if (!mounted) return;
+      AppToast.show(context, e.message, icon: CupertinoIcons.lock);
+    } finally {
+      if (mounted) setState(() => _unlocking = false);
+    }
+  }
+
+  /// Locks again and drops any unsaved shared edits.
+  void _lock() {
+    setState(() {
+      _pin = null;
+      _fillShared(_saved);
+    });
+  }
+
+  Future<void> _saveShared() async {
+    final pin = _pin;
+    if (pin == null) return;
+    final (config, errors) = _sharedDraft();
+    if (config == null) return _showInvalid(errors);
+    setState(() => _savingShared = true);
+    try {
+      await ref.read(sharedSettingsProvider.notifier).save(pin, config);
+      if (!mounted) return;
+      setState(() {
+        _pin = null;
+        _saved = ref.read(configProvider);
+        _fillShared(_saved);
+      });
       AppToast.show(
         context,
-        'Periksa kembali isian yang ditandai merah.',
-        icon: CupertinoIcons.exclamationmark_circle,
+        'Disimpan untuk semua HP',
+        icon: CupertinoIcons.checkmark_circle,
       );
-      return;
+    } on TankSourceException catch (e) {
+      if (!mounted) return;
+      AppToast.show(context, e.message, icon: CupertinoIcons.xmark_circle);
+    } finally {
+      if (mounted) setState(() => _savingShared = false);
     }
-    setState(() => _saving = true);
+  }
+
+  Future<void> _saveLocal() async {
+    final (config, errors) = _localDraft();
+    if (config == null) return _showInvalid(errors);
+    setState(() => _savingLocal = true);
     try {
       if (config.notificationsEnabled && !_saved.notificationsEnabled) {
         await NotificationService.requestPermission();
       }
-      await ref.read(configProvider.notifier).save(config);
+      await ref.read(configProvider.notifier).saveLocal(config);
       if (!mounted) return;
-      setState(() => _fill(config));
+      setState(() {
+        _saved = ref.read(configProvider);
+        _fillLocal(_saved);
+      });
       AppToast.show(
         context,
-        'Pengaturan disimpan',
+        'Pengaturan HP ini disimpan',
         icon: CupertinoIcons.checkmark_circle,
       );
     } catch (e) {
@@ -181,14 +312,14 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       );
     } finally {
       // Whatever happened, the button must not keep spinning.
-      if (mounted) setState(() => _saving = false);
+      if (mounted) setState(() => _savingLocal = false);
     }
   }
 
   Future<void> _testConnection() async {
-    final (config, errors) = _draft();
+    final (config, errors) = _sharedDraft();
     if (config == null) {
-      setState(() => _errors = errors);
+      setState(() => _errors = {..._errors, ...errors});
       return;
     }
     setState(() => _testing = true);
@@ -200,9 +331,12 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
         repository: ref.read(tankRepositoryProvider),
       );
       final reading = await source.fetch();
-      message =
-          'Terhubung · air ${Format.percent(reading.percent)} · '
-          '${Format.relative(reading.measuredAt)}';
+      message = [
+        'Terhubung · air ${Format.percent(reading.percent)}',
+        if (config.floatSensorId != null)
+          'pelampung ${Format.floatState(reading.floatFull).toLowerCase()}',
+        Format.relative(reading.measuredAt),
+      ].join(' · ');
       icon = CupertinoIcons.checkmark_circle;
     } catch (e) {
       message = e.toString();
@@ -239,25 +373,34 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
         _sensorId = null;
         _sensorName = null;
         _sensorUnit = null;
+        _floatSensorId = null;
+        _floatSensorName = null;
       }
       _deviceId = device.id;
       _deviceName = device.name;
     });
-    _touch();
+    _touchShared();
   }
 
-  Future<void> _pickSensor() async {
+  Future<Sensor?> _chooseSensor(SensorPurpose purpose) {
     final deviceId = _deviceId;
-    if (deviceId == null) return;
-    final sensor = await Navigator.of(context).push<Sensor>(
+    if (deviceId == null) return Future.value();
+    final isFloat = purpose == SensorPurpose.float;
+    return Navigator.of(context).push<Sensor>(
       CupertinoPageRoute(
         builder: (_) => SensorPickerScreen(
           deviceId: deviceId,
           deviceName: _deviceName ?? '',
-          selectedId: _sensorId,
+          purpose: purpose,
+          selectedId: isFloat ? _floatSensorId : _sensorId,
+          excludedId: isFloat ? _sensorId : _floatSensorId,
         ),
       ),
     );
+  }
+
+  Future<void> _pickSensor() async {
+    final sensor = await _chooseSensor(SensorPurpose.level);
     if (sensor == null || !mounted) return;
     setState(() {
       _sensorId = sensor.id;
@@ -265,7 +408,25 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       _sensorUnit = sensor.unit;
       _valueKind = inferValueKind(sensor);
     });
-    _touch();
+    _touchShared();
+  }
+
+  Future<void> _pickFloat() async {
+    final sensor = await _chooseSensor(SensorPurpose.float);
+    if (sensor == null || !mounted) return;
+    setState(() {
+      _floatSensorId = sensor.id;
+      _floatSensorName = sensor.name;
+    });
+    _touchShared();
+  }
+
+  void _clearFloat() {
+    setState(() {
+      _floatSensorId = null;
+      _floatSensorName = null;
+    });
+    _touchShared();
   }
 
   /// The first error among [keys], for a section footer.
@@ -276,23 +437,42 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   Widget build(BuildContext context) {
     final palette = context.palette;
     final themeMode = ref.watch(themeModeProvider);
+    final shared = ref.watch(sharedSettingsProvider);
+    final databaseAvailable = ref.watch(tankRepositoryProvider) != null;
+    final editable = databaseAvailable && _unlocked;
 
-    final sourceError = _errorIn(['deviceId', 'sensorId']);
+    // Another phone, or the admin in Supabase, changed something: show it,
+    // unless it would overwrite edits in progress here.
+    ref.listen<TankConfig>(configProvider, (_, next) {
+      setState(() {
+        _saved = next;
+        if (!_sharedDirty) _fillShared(next);
+        if (!_localDirty) _fillLocal(next);
+      });
+    });
+
+    final sourceError = _errorIn(['deviceId', 'sensorId', 'floatSensorId']);
     final tankError = _errorIn([
       'tankHeightCm',
       'sensorToBottomCm',
       'capacityLiters',
     ]);
-    final thresholdError = _errorIn([
-      'fullThreshold',
-      'emptyThreshold',
-      'pollSeconds',
-    ]);
-    final databaseAvailable = ref.watch(tankRepositoryProvider) != null;
+    final thresholdError = _errorIn(['fullThreshold', 'emptyThreshold']);
+    final pollError = _errors['pollSeconds'];
 
     Widget check(bool on) => on
         ? Icon(CupertinoIcons.check_mark, size: 20, color: palette.accent)
         : const SizedBox(width: 20);
+
+    final String lockSubtitle = switch (shared) {
+      _ when !databaseAvailable => 'Supabase belum dikonfigurasi',
+      SharedSettingsState(:final error?) => error,
+      SharedSettingsState(exists: false) =>
+        'Belum ada pengaturan bersama; HP ini memakai pengaturannya sendiri.',
+      SharedSettingsState(:final updatedAt?) =>
+        'Berlaku untuk semua HP · diubah ${Format.dateTime(updatedAt)}',
+      _ => 'Berlaku untuk semua HP',
+    };
 
     final sourceFooter = switch (_valueKind) {
       _ when !databaseAvailable =>
@@ -312,15 +492,43 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       title: 'Pengaturan',
       children: [
         InsetSection(
-          header: 'Sensor (Supabase)',
+          header: 'Pengaturan tangki',
+          footer:
+              'Perangkat, sensor, dimensi, dan ambang sama untuk semua HP. '
+              'Mengubahnya butuh PIN admin, yang dibuat di Supabase dan tidak '
+              'disimpan di HP.',
+          children: [
+            InsetRow(
+              leading: IconTile(
+                icon: _unlocked
+                    ? CupertinoIcons.lock_open_fill
+                    : CupertinoIcons.lock_fill,
+                tone: _unlocked ? palette.warning : palette.info,
+              ),
+              title: _unlocked ? 'Terbuka' : 'Terkunci',
+              subtitle: lockSubtitle,
+              trailing: _unlocking ? const CupertinoActivityIndicator() : null,
+            ),
+            if (databaseAvailable)
+              InsetRow(
+                title: _unlocked
+                    ? 'Kunci kembali'
+                    : 'Buka kunci untuk mengubah',
+                titleStyle: AppText.body.copyWith(color: palette.accent),
+                onTap: _unlocking ? null : (_unlocked ? _lock : _unlock),
+              ),
+          ],
+        ),
+        InsetSection(
+          header: 'Sensor',
           footer: sourceFooter,
           footerIsError: !databaseAvailable || sourceError != null,
           children: [
             InsetRow(
               title: 'Perangkat',
               subtitle: _deviceName ?? 'Belum dipilih',
-              showChevron: databaseAvailable,
-              onTap: databaseAvailable ? _pickDevice : null,
+              showChevron: editable,
+              onTap: editable ? _pickDevice : null,
             ),
             InsetRow(
               title: 'Sensor ketinggian',
@@ -332,49 +540,69 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                       ?_sensorName,
                       if (_sensorUnit != null) 'unit $_sensorUnit',
                     ].join(' · '),
-              showChevron: databaseAvailable && _deviceId != null,
-              onTap: databaseAvailable && _deviceId != null
-                  ? _pickSensor
-                  : null,
+              showChevron: editable && _deviceId != null,
+              onTap: editable && _deviceId != null ? _pickSensor : null,
             ),
-            if (_sensorId != null) ...[
+            if (_sensorId != null)
               InsetCustomRow(
                 child: SizedBox(
                   width: double.infinity,
-                  child: CupertinoSlidingSegmentedControl<ValueKind>(
-                    groupValue: _valueKind,
-                    children: {
-                      for (final kind in ValueKind.values)
-                        kind: Padding(
-                          padding: const EdgeInsets.symmetric(vertical: 6),
-                          child: Text(
-                            switch (kind) {
-                              ValueKind.percent => 'Persen',
-                              ValueKind.levelCm => 'Tinggi air',
-                              ValueKind.distanceCm => 'Jarak',
-                            },
-                            style: AppText.footnote.copyWith(
-                              color: palette.label,
-                              fontWeight: FontWeight.w600,
+                  child: IgnorePointer(
+                    ignoring: !editable,
+                    child: Opacity(
+                      opacity: editable ? 1 : 0.6,
+                      child: CupertinoSlidingSegmentedControl<ValueKind>(
+                        groupValue: _valueKind,
+                        children: {
+                          for (final kind in ValueKind.values)
+                            kind: Padding(
+                              padding: const EdgeInsets.symmetric(vertical: 6),
+                              child: Text(
+                                switch (kind) {
+                                  ValueKind.percent => 'Persen',
+                                  ValueKind.levelCm => 'Tinggi air',
+                                  ValueKind.distanceCm => 'Jarak',
+                                },
+                                style: AppText.footnote.copyWith(
+                                  color: palette.label,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
                             ),
-                          ),
-                        ),
-                    },
-                    onValueChanged: (kind) {
-                      if (kind == null) return;
-                      setState(() => _valueKind = kind);
-                      _touch();
-                    },
+                        },
+                        onValueChanged: (kind) {
+                          if (kind == null) return;
+                          setState(() => _valueKind = kind);
+                          _touchShared();
+                        },
+                      ),
+                    ),
                   ),
                 ),
               ),
+            InsetRow(
+              title: 'Sensor pelampung',
+              subtitle:
+                  _floatSensorName ??
+                  (_floatSensorId == null
+                      ? 'Opsional · penanda tangki penuh (1 = penuh)'
+                      : 'Sensor terpilih'),
+              showChevron: editable && _deviceId != null,
+              onTap: editable && _deviceId != null ? _pickFloat : null,
+            ),
+            if (editable && _floatSensorId != null)
+              InsetRow(
+                title: 'Tidak pakai pelampung',
+                isDestructive: true,
+                onTap: _clearFloat,
+              ),
+            if (_sensorId != null)
               InsetRow(
                 title: _testing ? 'Menguji koneksi…' : 'Uji koneksi',
                 titleStyle: AppText.body.copyWith(color: palette.accent),
                 trailing: _testing ? const CupertinoActivityIndicator() : null,
                 onTap: _testing ? null : _testConnection,
               ),
-            ],
           ],
         ),
         InsetSection(
@@ -388,27 +616,30 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
               label: 'Tinggi air maksimum',
               controller: _height,
               suffix: 'cm',
+              readOnly: !editable,
               error: _errors.containsKey('tankHeightCm'),
-              onChanged: _touch,
+              onChanged: _touchShared,
             ),
             _NumberRow(
               label: 'Jarak sensor ke dasar',
               controller: _sensor,
               suffix: 'cm',
+              readOnly: !editable,
               error: _errors.containsKey('sensorToBottomCm'),
-              onChanged: _touch,
+              onChanged: _touchShared,
             ),
             _NumberRow(
               label: 'Kapasitas',
               controller: _capacity,
               suffix: 'L',
+              readOnly: !editable,
               error: _errors.containsKey('capacityLiters'),
-              onChanged: _touch,
+              onChanged: _touchShared,
             ),
           ],
         ),
         InsetSection(
-          header: 'Ambang & pembaruan',
+          header: 'Ambang notifikasi',
           footer:
               thresholdError ??
               'Status baru lepas dari penuh/kosong setelah air bergeser '
@@ -420,39 +651,55 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
               controller: _full,
               suffix: '%',
               decimal: false,
+              readOnly: !editable,
               error: _errors.containsKey('fullThreshold'),
-              onChanged: _touch,
+              onChanged: _touchShared,
             ),
             _NumberRow(
               label: 'Batas kosong',
               controller: _empty,
               suffix: '%',
               decimal: false,
+              readOnly: !editable,
               error: _errors.containsKey('emptyThreshold'),
-              onChanged: _touch,
+              onChanged: _touchShared,
             ),
+          ],
+        ),
+        if (editable)
+          Padding(
+            padding: const EdgeInsets.only(bottom: AppSpacing.xl),
+            child: AppButton(
+              label: 'Simpan untuk semua HP',
+              icon: CupertinoIcons.checkmark_alt,
+              isBusy: _savingShared,
+              onPressed: _sharedDirty ? _saveShared : null,
+            ),
+          ),
+        InsetSection(
+          header: 'HP ini',
+          footer:
+              pollError ??
+              (BackgroundMonitor.isSupported
+                  ? 'Hanya untuk HP ini. Saat aplikasi ditutup, Android memeriksa '
+                        'tangki paling cepat tiap 15 menit.'
+                  : 'Hanya untuk HP ini. Notifikasi dikirim selama aplikasi terbuka.'),
+          footerIsError: pollError != null,
+          children: [
             _NumberRow(
               label: 'Interval pembaruan',
               controller: _poll,
               suffix: 'detik',
               decimal: false,
-              error: _errors.containsKey('pollSeconds'),
-              onChanged: _touch,
+              error: pollError != null,
+              onChanged: _touchLocal,
             ),
-          ],
-        ),
-        InsetSection(
-          header: 'Notifikasi',
-          footer: BackgroundMonitor.isSupported
-              ? 'Saat aplikasi ditutup, Android memeriksa tangki paling cepat tiap 15 menit.'
-              : 'Notifikasi dikirim selama aplikasi terbuka.',
-          children: [
             _SwitchRow(
               title: 'Peringatan penuh & kosong',
               value: _notifications,
               onChanged: (v) {
                 setState(() => _notifications = v);
-                _touch();
+                _touchLocal();
               },
             ),
             if (BackgroundMonitor.isSupported)
@@ -461,7 +708,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                 value: _background,
                 onChanged: (v) {
                   setState(() => _background = v);
-                  _touch();
+                  _touchLocal();
                 },
               ),
             InsetRow(
@@ -474,10 +721,10 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
         Padding(
           padding: const EdgeInsets.only(bottom: AppSpacing.xl),
           child: AppButton(
-            label: 'Simpan pengaturan',
+            label: 'Simpan pengaturan HP ini',
             icon: CupertinoIcons.checkmark_alt,
-            isBusy: _saving,
-            onPressed: _dirty ? _save : null,
+            isBusy: _savingLocal,
+            onPressed: _localDirty ? _saveLocal : null,
           ),
         ),
         InsetSection(
@@ -507,7 +754,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
 }
 
 /// A label on the left, a right-aligned number field and its unit on the
-/// right.
+/// right. Read-only while the shared settings are locked.
 class _NumberRow extends StatelessWidget {
   const _NumberRow({
     required this.label,
@@ -515,6 +762,7 @@ class _NumberRow extends StatelessWidget {
     required this.suffix,
     required this.onChanged,
     this.decimal = true,
+    this.readOnly = false,
     this.error = false,
   });
 
@@ -523,12 +771,15 @@ class _NumberRow extends StatelessWidget {
   final String suffix;
   final VoidCallback onChanged;
   final bool decimal;
+  final bool readOnly;
   final bool error;
 
   @override
   Widget build(BuildContext context) {
     final palette = context.palette;
-    final colour = error ? palette.danger.foreground : palette.label;
+    final colour = error
+        ? palette.danger.foreground
+        : (readOnly ? palette.secondaryLabel : palette.label);
     return InsetCustomRow(
       padding: const EdgeInsets.symmetric(horizontal: AppSpacing.lg),
       child: Row(
@@ -543,6 +794,7 @@ class _NumberRow extends StatelessWidget {
             width: 96,
             child: CupertinoTextField.borderless(
               controller: controller,
+              enabled: !readOnly,
               textAlign: TextAlign.right,
               keyboardType: TextInputType.numberWithOptions(decimal: decimal),
               inputFormatters: [

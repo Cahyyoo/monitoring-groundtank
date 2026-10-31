@@ -46,6 +46,9 @@ class DashboardScreen extends ConsumerWidget {
       );
     });
 
+    final reading = state.reading;
+    final mismatch = reading == null ? null : floatMismatch(reading, config);
+
     final sections = <Widget>[
       if (!config.hasSensor)
         _Banner(
@@ -76,7 +79,48 @@ class DashboardScreen extends ConsumerWidget {
           tone: palette.warning,
           onRetry: () => ref.read(monitorProvider.notifier).refresh(),
         ),
+      if (config.hasSensor && mismatch != null)
+        _Banner(
+          title: 'Sensor tidak sepakat',
+          message: switch (mismatch) {
+            FloatMismatch.floatFullLevelLow =>
+              'Pelampung mendeteksi penuh, tetapi sensor ketinggian '
+                  '${Format.percent(reading!.percent)}. Periksa posisi sensor '
+                  'atau dimensi tangki di Pengaturan.',
+            FloatMismatch.levelFullFloatDown =>
+              'Sensor ketinggian menunjukkan penuh, tetapi pelampung belum '
+                  'terangkat. Periksa pelampung dan kabelnya.',
+          },
+          icon: CupertinoIcons.exclamationmark_triangle,
+          tone: palette.warning,
+        ),
       _StatsGrid(state: state, config: config),
+      if (config.hasSensor && config.floatSensorId != null)
+        InsetSection(
+          header: 'Sensor pelampung',
+          footer: 'Pelampung yang terangkat membuat status Penuh.',
+          children: [
+            InsetRow(
+              leading: IconTile(
+                icon: CupertinoIcons.arrow_up_to_line,
+                tone: reading?.floatFull == true
+                    ? palette.info
+                    : palette.success,
+              ),
+              title: config.floatSensorName ?? 'Pelampung',
+              subtitle: switch (reading?.floatAt) {
+                final at? => 'Diperbarui ${Format.relative(at)}',
+                null => 'Belum ada data dari pelampung',
+              },
+              trailing: AppBadge(
+                label: Format.floatState(reading?.floatFull),
+                tone: reading?.floatFull == true
+                    ? palette.info
+                    : palette.success,
+              ),
+            ),
+          ],
+        ),
       InsetSection(
         header: 'Riwayat ketinggian',
         footer: state.history.isEmpty

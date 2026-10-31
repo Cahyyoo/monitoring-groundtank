@@ -10,12 +10,19 @@ import '../models/tank_reading.dart';
 const double hysteresisPercent = 3;
 
 /// Which state [percent] puts the tank in, given the state it was in before.
+///
+/// A lifted float switch ([floatFull]) is full whatever the level sensor
+/// says: it is the more direct of the two, and an overflow costs more than a
+/// false alarm.
 TankLevel classifyLevel(
   double percent,
   TankConfig config, {
   TankLevel? previous,
+  bool? floatFull,
 }) {
-  if (percent >= config.fullThreshold) return TankLevel.full;
+  if (floatFull == true || percent >= config.fullThreshold) {
+    return TankLevel.full;
+  }
   if (percent <= config.emptyThreshold) return TankLevel.empty;
   if (previous == TankLevel.full &&
       percent > config.fullThreshold - hysteresisPercent) {
@@ -44,6 +51,17 @@ TankAlertKind? alertFor({
   };
 }
 
+/// Whether moving from [a] to [b] makes the remembered tank state
+/// meaningless: another tank or sensor, another reading of its value, or
+/// other thresholds. The next reading is then judged afresh, so a tank that
+/// is already full is announced under the new settings.
+bool judgesDifferently(TankConfig a, TankConfig b) =>
+    a.sourceKey != b.sourceKey ||
+    a.floatSensorId != b.floatSensorId ||
+    a.valueKind != b.valueKind ||
+    a.fullThreshold != b.fullThreshold ||
+    a.emptyThreshold != b.emptyThreshold;
+
 /// Checks a configuration before it is saved. Returns a message per field
 /// that is wrong; empty means it can be saved.
 Map<String, String> validateConfig(TankConfig c) {
@@ -53,6 +71,10 @@ Map<String, String> validateConfig(TankConfig c) {
     errors['deviceId'] = 'Pilih perangkat yang memantau ground tank.';
   } else if (c.sensorId == null) {
     errors['sensorId'] = 'Pilih sensor ketinggian air pada perangkat itu.';
+  }
+  if (c.floatSensorId != null && c.floatSensorId == c.sensorId) {
+    errors['floatSensorId'] =
+        'Sensor pelampung harus berbeda dari sensor ketinggian.';
   }
   if (c.tankHeightCm <= 0) {
     errors['tankHeightCm'] = 'Tinggi tangki harus lebih dari 0.';
@@ -79,6 +101,29 @@ Map<String, String> validateConfig(TankConfig c) {
     errors['pollSeconds'] = 'Interval antara 2 dan 3600 detik.';
   }
   return errors;
+}
+
+/// How the float switch and the level sensor disagree, if they do.
+enum FloatMismatch {
+  /// The float is lifted, yet the level is well below the full threshold.
+  floatFullLevelLow,
+
+  /// The level reads the brim, yet the float is down.
+  levelFullFloatDown,
+}
+
+/// Points under the full threshold at which a lifted float stops being
+/// explained by where it is mounted, and starts to look like a fault.
+const double floatMismatchMargin = 10;
+
+/// Null when the two sensors agree, or there is no float reading.
+FloatMismatch? floatMismatch(TankReading reading, TankConfig config) {
+  return switch (reading.floatFull) {
+    true when reading.percent < config.fullThreshold - floatMismatchMargin =>
+      FloatMismatch.floatFullLevelLow,
+    false when reading.percent >= 99.5 => FloatMismatch.levelFullFloatDown,
+    _ => null,
+  };
 }
 
 /// Whether the newest reading is too old to be trusted as "now".

@@ -2,11 +2,13 @@ import 'dart:async';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:groundtank/models/shared_settings.dart';
 import 'package:groundtank/models/tank_config.dart';
 import 'package:groundtank/models/tank_level.dart';
 import 'package:groundtank/models/tank_reading.dart';
 import 'package:groundtank/providers/config_provider.dart';
 import 'package:groundtank/providers/monitor_provider.dart';
+import 'package:groundtank/services/settings_service.dart';
 import 'package:groundtank/services/tank_source.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -158,5 +160,76 @@ void main() {
     expect(state.reading, isNull);
     expect(state.error, isNull);
     expect(state.isFetching, isFalse);
+  });
+
+  test('a float lifting on its own makes the tank full, once', () async {
+    SharedPreferences.setMockInitialValues({});
+    final now = DateTime.now();
+    final level = _reading(70, now).withFloat(false, now);
+    final source = _PushSource([level]);
+    final container = _container(source);
+
+    container.read(monitorProvider);
+    await pumpEventQueue();
+    expect(container.read(monitorProvider).level, TankLevel.normal);
+
+    // Same level row, float now lifted: judged again, but no new chart point.
+    final lifted = level.withFloat(true, now.add(const Duration(seconds: 3)));
+    source.history[0] = lifted;
+    source.pushes.add(lifted);
+    await pumpEventQueue();
+    await container.read(monitorProvider.notifier).refresh();
+
+    final state = container.read(monitorProvider);
+    expect(state.level, TankLevel.full);
+    expect(state.reading?.floatFull, isTrue);
+    expect(state.history, hasLength(1));
+    expect(state.lastAlert?.kind, TankAlertKind.full);
+    expect(await SettingsService.getAlerts(), hasLength(1));
+  });
+
+  test('shared settings replace the tank, keep this phone choices', () async {
+    SharedPreferences.setMockInitialValues({});
+    final container = ProviderContainer(
+      overrides: [
+        configProvider.overrideWith(
+          (ref) => ConfigNotifier(
+            const TankConfig(
+              deviceId: 'device-1',
+              sensorId: 'sensor-1',
+              pollSeconds: 30,
+              notificationsEnabled: false,
+            ),
+          ),
+        ),
+      ],
+    );
+    addTearDown(container.dispose);
+
+    await container
+        .read(configProvider.notifier)
+        .applyShared(
+          const SharedSettings(
+            deviceId: 'device-2',
+            deviceName: 'Toren',
+            levelSensorId: 'sensor-2',
+            floatSensorId: 'float-2',
+            valueKind: ValueKind.percent,
+            tankHeightCm: 150,
+            sensorToBottomCm: 170,
+            capacityLiters: 800,
+            fullThreshold: 80,
+            emptyThreshold: 10,
+          ),
+        );
+
+    final config = container.read(configProvider);
+    expect(config.deviceId, 'device-2');
+    expect(config.floatSensorId, 'float-2');
+    expect(config.fullThreshold, 80);
+    expect(config.pollSeconds, 30);
+    expect(config.notificationsEnabled, isFalse);
+    // Cached on the phone, for offline starts and the background check.
+    expect((await SettingsService.loadConfig()).deviceId, 'device-2');
   });
 }

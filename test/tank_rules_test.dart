@@ -200,4 +200,64 @@ void main() {
       expect(minutesToThreshold(95, filling, config), isNull);
     });
   });
+
+  group('float switch', () {
+    TankReading at(double percent, {bool? float}) => TankReading(
+      percent: percent,
+      levelCm: percent * 2,
+      volumeLiters: percent * 50,
+      measuredAt: DateTime(2026),
+      floatFull: float,
+    );
+
+    test('a lifted float is full whatever the level says', () {
+      expect(classifyLevel(60, config, floatFull: true), TankLevel.full);
+      expect(classifyLevel(60, config, floatFull: false), TankLevel.normal);
+      expect(classifyLevel(95, config, floatFull: false), TankLevel.full);
+      // Once the float drops, the usual hysteresis applies.
+      expect(
+        classifyLevel(88, config, previous: TankLevel.full, floatFull: false),
+        TankLevel.full,
+      );
+      expect(
+        alertFor(
+          previous: TankLevel.normal,
+          current: classifyLevel(60, config, floatFull: true),
+        ),
+        TankAlertKind.full,
+      );
+    });
+
+    test('must be another sensor than the level sensor', () {
+      const both = TankConfig(deviceId: 'd', sensorId: 's', floatSensorId: 's');
+      expect(validateConfig(both), contains('floatSensorId'));
+      expect(validateConfig(both.copyWith(floatSensorId: () => 'f')), isEmpty);
+    });
+
+    test('flags the two sensors disagreeing, not a float mounted low', () {
+      expect(
+        floatMismatch(at(60, float: true), config),
+        FloatMismatch.floatFullLevelLow,
+      );
+      expect(floatMismatch(at(85, float: true), config), isNull);
+      expect(
+        floatMismatch(at(100, float: false), config),
+        FloatMismatch.levelFullFloatDown,
+      );
+      expect(floatMismatch(at(92, float: false), config), isNull);
+      expect(floatMismatch(at(60), config), isNull);
+    });
+
+    test('changing the float sensor resets the remembered state', () {
+      const before = TankConfig(deviceId: 'd', sensorId: 's');
+      expect(
+        judgesDifferently(before, before.copyWith(pollSeconds: 30)),
+        isFalse,
+      );
+      expect(
+        judgesDifferently(before, before.copyWith(floatSensorId: () => 'f')),
+        isTrue,
+      );
+    });
+  });
 }

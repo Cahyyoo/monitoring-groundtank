@@ -75,10 +75,24 @@ abstract final class Format {
     TankAlertKind.empty => 'Ground tank kosong',
   };
 
-  static String alertBody(TankAlertKind kind, double percent) => switch (kind) {
+  /// [byFloat]: the float switch, not the level, made it full.
+  static String alertBody(
+    TankAlertKind kind,
+    double percent, {
+    bool byFloat = false,
+  }) => switch (kind) {
+    TankAlertKind.full when byFloat =>
+      'Pelampung mendeteksi air penuh (sensor ketinggian ${Format.percent(percent)}). '
+          'Matikan pompa pengisian agar tidak meluap.',
     TankAlertKind.full =>
       'Air mencapai ${Format.percent(percent)}. Matikan pompa pengisian agar tidak meluap.',
     TankAlertKind.empty =>
       'Air tersisa ${Format.percent(percent)}. Segera isi ulang ground tank.',
+  };
+
+  static String floatState(bool? full) => switch (full) {
+    true => 'Penuh',
+    false => 'Belum penuh',
+    null => 'Belum ada data',
   };
 }

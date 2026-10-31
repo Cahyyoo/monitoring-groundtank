@@ -202,10 +202,18 @@ class MonitorNotifier extends StateNotifier<MonitorState> {
       pollSeconds: config.pollSeconds,
     );
     final last = state.history.lastOrNull;
+    final isNewer = last == null || reading.measuredAt.isAfter(last.measuredAt);
+    // The float switch can change while the level row stays the same one; that
+    // is news too, though not a new point for the chart.
+    final shown = state.reading;
+    final floatChanged =
+        shown != null &&
+        reading.floatFull != shown.floatFull &&
+        !reading.measuredAt.isBefore(shown.measuredAt);
 
     // The same row seen again — a poll after a push, or a device that has
     // gone quiet. Only the freshness can have changed.
-    if (last != null && !reading.measuredAt.isAfter(last.measuredAt)) {
+    if (last != null && !isNewer && !floatChanged) {
       state = state.copyWith(
         reading: state.reading ?? last,
         error: () => null,
@@ -218,7 +226,7 @@ class MonitorNotifier extends StateNotifier<MonitorState> {
     final evaluation = await TankEvaluator.evaluate(reading, config);
     if (generation != _generation || !mounted) return;
 
-    final history = [...state.history, reading];
+    final history = isNewer ? [...state.history, reading] : state.history;
     if (history.length > historyLimit) {
       history.removeRange(0, history.length - historyLimit);
     }

@@ -1,3 +1,5 @@
+import 'package:supabase/supabase.dart';
+
 /// Build-time configuration, supplied with
 /// `flutter run --dart-define-from-file=env.json` (see `env.example.json`).
 ///
@@ -17,4 +19,12 @@ abstract final class Env {
 
   static bool get isSupabaseConfigured =>
       supabaseUrl.isNotEmpty && supabaseKey.isNotEmpty;
+
+  /// A client for the publishable key alone. The app signs no one in, so
+  /// there is no session to persist or refresh.
+  static SupabaseClient createSupabaseClient() => SupabaseClient(
+    supabaseUrl,
+    supabaseKey,
+    authOptions: const AuthClientOptions(autoRefreshToken: false),
+  );
 }

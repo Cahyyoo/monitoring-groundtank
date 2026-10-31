@@ -2,7 +2,7 @@ import 'dart:io' show Platform;
 import 'dart:ui' show DartPluginRegistrant;
 
 import 'package:flutter/foundation.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:supabase/supabase.dart';
 import 'package:workmanager/workmanager.dart';
 
 import '../config/env.dart';
@@ -10,6 +10,7 @@ import '../models/tank_config.dart';
 import '../services/settings_service.dart';
 import '../services/tank_evaluator.dart';
 import '../services/tank_repository.dart';
+import '../services/tank_rules.dart';
 import '../services/tank_source.dart';
 
 const _uniqueName = 'groundtank-periodic-check';
@@ -28,19 +29,29 @@ void backgroundDispatcher() {
     DartPluginRegistrant.ensureInitialized();
     SupabaseClient? client;
     try {
-      final config = await SettingsService.loadConfig();
+      var config = await SettingsService.loadConfig();
       if (!_shouldRun(config) || !Env.isSupabaseConfigured) return true;
-      // A bare client rather than Supabase.initialize: this isolate needs one
-      // query, not a persisted auth session or lifecycle handling.
-      client = SupabaseClient(
-        Env.supabaseUrl,
-        Env.supabaseKey,
-        authOptions: const AuthClientOptions(autoRefreshToken: false),
-      );
-      final source = TankSource.forConfig(
-        config,
-        repository: TankRepository(client),
-      );
+      // Its own client: this isolate shares no memory with the app's.
+      client = Env.createSupabaseClient();
+      final repository = TankRepository(client);
+      // A phone left closed for days must still follow the shared settings;
+      // when they cannot be fetched, the cached copy is the next best.
+      try {
+        final shared = await repository.fetchSharedSettings();
+        if (shared != null) {
+          final next = shared.applyTo(config);
+          if (next != config) {
+            await SettingsService.saveConfig(next);
+            if (judgesDifferently(config, next)) {
+              await SettingsService.clearLastLevel();
+            }
+            config = next;
+          }
+        }
+      } on TankSourceException catch (e) {
+        debugPrint('Shared settings unavailable: $e');
+      }
+      final source = TankSource.forConfig(config, repository: repository);
       await TankEvaluator.evaluate(await source.fetch(), config);
     } catch (e) {
       // A sensor that is unreachable now will be asked again next period;

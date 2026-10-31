@@ -15,7 +15,9 @@ enum ValueKind {
 /// Everything the user can set about the tank and how it is watched.
 ///
 /// Readings always come from `sensor_readings` in Supabase, for the one
-/// device and sensor chosen here.
+/// device and sensor chosen here. The tank part (device, sensors, dimensions,
+/// thresholds) is shared by every phone through `tank_settings`, see
+/// `SharedSettings`; the rest belongs to this phone.
 ///
 /// Stored as one JSON document, so adding a field never needs a migration:
 /// an older install simply reads the default for it.
@@ -27,6 +29,8 @@ class TankConfig {
     this.sensorId,
     this.sensorName,
     this.sensorUnit,
+    this.floatSensorId,
+    this.floatSensorName,
     this.valueKind = ValueKind.distanceCm,
     this.tankHeightCm = 200,
     this.sensorToBottomCm = 220,
@@ -50,6 +54,11 @@ class TankConfig {
 
   /// `sensors.unit` at the time it was chosen; scales mm and m to cm.
   final String? sensorUnit;
+
+  /// `sensors.id` of an optional float switch on the same device: `1` when
+  /// the float is lifted (full), `0` otherwise. Null when there is none.
+  final String? floatSensorId;
+  final String? floatSensorName;
 
   /// What the sensor's value means. Suggested from the unit when the sensor
   /// is picked, and changeable, since a unit of "cm" alone cannot say whether
@@ -95,6 +104,8 @@ class TankConfig {
     String? Function()? sensorId,
     String? Function()? sensorName,
     String? Function()? sensorUnit,
+    String? Function()? floatSensorId,
+    String? Function()? floatSensorName,
     ValueKind? valueKind,
     double? tankHeightCm,
     double? sensorToBottomCm,
@@ -111,6 +122,12 @@ class TankConfig {
       sensorId: sensorId != null ? sensorId() : this.sensorId,
       sensorName: sensorName != null ? sensorName() : this.sensorName,
       sensorUnit: sensorUnit != null ? sensorUnit() : this.sensorUnit,
+      floatSensorId: floatSensorId != null
+          ? floatSensorId()
+          : this.floatSensorId,
+      floatSensorName: floatSensorName != null
+          ? floatSensorName()
+          : this.floatSensorName,
       valueKind: valueKind ?? this.valueKind,
       tankHeightCm: tankHeightCm ?? this.tankHeightCm,
       sensorToBottomCm: sensorToBottomCm ?? this.sensorToBottomCm,
@@ -129,6 +146,8 @@ class TankConfig {
     'sensorId': sensorId,
     'sensorName': sensorName,
     'sensorUnit': sensorUnit,
+    'floatSensorId': floatSensorId,
+    'floatSensorName': floatSensorName,
     'valueKind': valueKind.name,
     'tankHeightCm': tankHeightCm,
     'sensorToBottomCm': sensorToBottomCm,
@@ -162,6 +181,8 @@ class TankConfig {
       sensorId: text('sensorId'),
       sensorName: text('sensorName'),
       sensorUnit: text('sensorUnit'),
+      floatSensorId: text('floatSensorId'),
+      floatSensorName: text('floatSensorName'),
       valueKind: pick(ValueKind.values, 'valueKind', d.valueKind),
       tankHeightCm: number('tankHeightCm', d.tankHeightCm),
       sensorToBottomCm: number('sensorToBottomCm', d.sensorToBottomCm),

@@ -3,8 +3,10 @@
 Aplikasi Flutter untuk memantau ketinggian air di ground tank secara
 real-time, lengkap dengan notifikasi saat air **penuh** atau **kosong**. Semua
 data dibaca dari Supabase, yang diisi oleh perangkat sensor (mis. ESP32 +
-JSN-SR04T). Untuk mencoba tanpa perangkat, isi data dummy dari
-[`supabase/seed.sql`](supabase/seed.sql).
+JSN-SR04T, dan opsional sensor pelampung). Pengaturan tangki disimpan
+terpusat di Supabase dan dikunci dengan PIN admin, sehingga semua HP memantau
+tangki yang sama dengan cara yang sama. Untuk mencoba tanpa perangkat, isi
+data dummy dari [`supabase/seed.sql`](supabase/seed.sql).
 
 ## Isi aplikasi
 
@@ -20,8 +22,11 @@ JSN-SR04T). Untuk mencoba tanpa perangkat, isi data dummy dari
   - *Tren*: Mengisi / Berkurang / Stabil, laju %/menit, dan perkiraan waktu
     sampai penuh atau kosong.
 - **Grafik riwayat ketinggian** dengan garis batas penuh dan kosong.
-- **Banner peringatan** bila sensor tidak terhubung atau perangkat berhenti
-  mengirim data.
+- **Sensor pelampung** (bila dipakai): status *Penuh* / *Belum penuh* dan
+  kapan terakhir diperbarui.
+- **Banner peringatan** bila sensor tidak terhubung, perangkat berhenti
+  mengirim data, atau pelampung dan sensor ketinggian **tidak sepakat**
+  (mis. pelampung penuh tetapi ketinggian jauh di bawah batas penuh).
 - Tarik ke bawah untuk memperbarui.
 
 Bila perangkat dan sensor belum dipilih, dashboard menampilkan pesan
@@ -41,6 +46,8 @@ Pill di kanan atas menunjukkan kesegaran data:
 - Notifikasi sistem muncul **sekali** setiap kali air *masuk* ke status penuh
   atau kosong. Status baru dilepas setelah air bergeser 3% dari batasnya
   (histeresis), sehingga riak air tidak memicu notifikasi berulang.
+- **Pelampung terangkat = penuh**, apa pun angka sensor ketinggian. Isi
+  notifikasinya menyebut bahwa pelampung yang mendeteksi.
 - Saat aplikasi terbuka, peringatan juga tampil sebagai toast di layar.
 - Tab **Notifikasi** menyimpan riwayatnya per hari (maks. 50), dengan badge
   untuk yang belum dibaca.
@@ -48,18 +55,24 @@ Pill di kanan atas menunjukkan kesegaran data:
   ±15 menit.
 
 ### Pengaturan
+Pengaturan terbagi dua:
 
-| Bagian | Isi |
-|---|---|
-| **Sensor (Supabase)** | Pilih **Perangkat**, **Sensor ketinggian**, dan **arti nilai**, lalu **Uji koneksi**. Wajib diisi sebelum pengaturan bisa disimpan |
-| **Dimensi tangki** | Tinggi air maksimum (cm), jarak sensor ke dasar (cm), kapasitas (L) |
-| **Ambang & pembaruan** | Batas penuh (default 90%), batas kosong (default 15%), interval pembaruan (default 5 detik) |
-| **Notifikasi** | Aktif/nonaktif peringatan, pantau di latar belakang (Android), kirim notifikasi uji |
-| **Tampilan** | Ikuti sistem / Terang / Gelap |
+| Bagian | Isi | Berlaku untuk | Disimpan di |
+|---|---|---|---|
+| **Pengaturan tangki** | Perangkat, sensor ketinggian, **arti nilai**, sensor pelampung (opsional), dimensi tangki, batas penuh (default 90%) dan kosong (default 15%) | **Semua HP** | Supabase (`tank_settings`) |
+| **HP ini** | Interval pembaruan (default 5 detik), notifikasi aktif/nonaktif, pantau di latar belakang (Android), kirim notifikasi uji | HP ini saja | HP |
+| **Tampilan** | Ikuti sistem / Terang / Gelap | HP ini saja | HP, langsung berlaku |
 
-> Perubahan Sensor, Dimensi tangki, Ambang, dan Notifikasi baru berlaku
-> setelah menekan **Simpan pengaturan** di bagian bawah. Tampilan berlaku
-> langsung.
+**Pengaturan tangki terkunci.** Semua orang bisa melihatnya, tetapi untuk
+mengubahnya tekan **Buka kunci untuk mengubah**, masukkan **PIN admin**, ubah
+isinya, lalu tekan **Simpan untuk semua HP**. HP lain ikut berubah seketika
+(Realtime) atau saat aplikasi dibuka lagi. Setelah disimpan, kunci tertutup
+kembali.
+
+- PIN diperiksa oleh server, bukan oleh aplikasi, dan tidak disimpan di HP.
+- Setelah **5 kali PIN salah**, kunci tertahan **5 menit**.
+- Sebelum ada pengaturan bersama, tiap HP memakai pengaturannya sendiri.
+- Perubahan **HP ini** berlaku setelah menekan **Simpan pengaturan HP ini**.
 
 #### Arti nilai: Persen, Tinggi air, atau Jarak
 Menentukan arti angka `value` yang dikirim perangkat. Pilihannya ditebak
@@ -73,6 +86,13 @@ otomatis dari `sensors.unit` dan nama sensor, dan bisa diubah:
 
 Disarankan perangkat mengirim **jarak mentah** dan memilih **Jarak**. Ukuran
 tangki cukup diatur di aplikasi, tanpa mengubah firmware.
+
+#### Sensor pelampung
+Opsional, sebagai penanda tangki penuh. Perangkat mengirim `1` saat pelampung
+terangkat dan `0` saat turun, ke sensor tersendiri pada perangkat yang sama
+(aturannya di [`firmware/README.md`](firmware/README.md#41-sensor-pelampung-opsional)).
+Pilih di **Pengaturan tangki → Sensor pelampung**. Sensor pelampung harus
+berbeda dari sensor ketinggian.
 
 #### Dimensi tangki
 
@@ -126,24 +146,43 @@ di **SQL Editor**. Isinya:
 - **RLS read-only**: aplikasi hanya bisa membaca.
 - **Realtime** pada `sensor_readings`, agar dashboard berubah saat data baru
   masuk. Tanpa ini aplikasi tetap jalan dengan polling.
+- **Pengaturan bersama**: tabel `tank_settings` (satu baris, hanya-baca bagi
+  aplikasi), tabel `settings_pin` (hash PIN, tidak terbaca aplikasi), dan
+  fungsi `verify_settings_pin` / `update_tank_settings` yang memeriksa PIN dan
+  memvalidasi isinya di server.
 
 ⚠️ Bila perangkat saat ini meng-*insert* `sensor_readings` memakai anon key,
 RLS akan memblokirnya. Pindahkan perangkat ke fungsi `submit_reading`.
 
-### 2. Kirim data dari perangkat
+### 2. Buat PIN admin
+Jalankan di **SQL Editor** (ganti `<PIN-BARU>`, minimal 6 karakter). Jalankan
+lagi untuk mengganti PIN.
+
+```sql
+insert into public.settings_pin (id, pin_hash)
+values (1, extensions.crypt('<PIN-BARU>', extensions.gen_salt('bf')))
+on conflict (id) do update
+  set pin_hash = excluded.pin_hash, failed_attempts = 0, locked_until = null;
+```
+
+PIN asli terlihat di riwayat SQL Editor, jadi batasi siapa yang punya akses ke
+dashboard Supabase.
+
+### 3. Kirim data dari perangkat
 Panduan fungsi `submit_reading`, token per perangkat, dan format request ada
 di [`firmware/README.md`](firmware/README.md).
 
-### 3. Data dummy (opsional)
-[`supabase/seed.sql`](supabase/seed.sql) mengisi 2 perangkat, 3 sensor, dan
-±180 pembacaan (2 jam naik hampir penuh lalu turun hampir kosong) untuk
-mencoba tanpa perangkat. Aman dijalankan ulang. Di bagian bawahnya ada contoh
-`insert` untuk memicu notifikasi dan perintah untuk menghapus data dummy.
+### 4. Data dummy (opsional)
+[`supabase/seed.sql`](supabase/seed.sql) mengisi 2 perangkat, 4 sensor
+(termasuk pelampung), ±300 pembacaan (2 jam naik hampir penuh lalu turun
+hampir kosong), dan pengaturan bersama contoh bila belum ada. Aman dijalankan
+ulang. Di bagian bawahnya ada contoh `insert` untuk memicu notifikasi dan
+perintah untuk menghapus data dummy.
 
-### 4. Hubungkan aplikasi
-**Pengaturan → Sensor (Supabase) → Perangkat → Sensor ketinggian → Uji
-koneksi → Simpan pengaturan.** Subjudul di dashboard berubah menjadi nama
-perangkat.
+### 5. Hubungkan aplikasi
+**Pengaturan → Buka kunci untuk mengubah (PIN admin) → Perangkat → Sensor
+ketinggian → (Sensor pelampung) → Uji koneksi → Simpan untuk semua HP.**
+Subjudul di dashboard berubah menjadi nama perangkat, di semua HP.
 
 ## Menjalankan
 
@@ -152,8 +191,32 @@ flutter pub get
 cp env.example.json env.json      # isi URL proyek + publishable key Supabase
 flutter run --dart-define-from-file=env.json
 flutter test
-flutter build apk --release --dart-define-from-file=env.json
 ```
+
+### Build rilis (ukuran kecil)
+
+```bash
+# APK per arsitektur, untuk dipasang langsung
+flutter build apk --release --split-per-abi --obfuscate \
+  --split-debug-info=build/symbols --dart-define-from-file=env.json
+
+# Untuk Google Play
+flutter build appbundle --release --obfuscate \
+  --split-debug-info=build/symbols --dart-define-from-file=env.json
+```
+
+Hasilnya ada di `build/app/outputs/flutter-apk/`:
+
+| File | Untuk |
+|---|---|
+| `app-arm64-v8a-release.apk` | Hampir semua HP Android sejak ±2017 (pilih ini bila ragu) |
+| `app-armeabi-v7a-release.apk` | HP Android lama (32-bit) |
+| `app-x86_64-release.apk` | Emulator |
+
+APK gabungan tanpa `--split-per-abi` membawa ketiga arsitektur sekaligus,
+sehingga ukurannya hampir 3×. `build/symbols` berisi simbol untuk membaca
+stack trace dari build `--obfuscate`; simpan bersama rilisnya dan jangan
+dibagikan.
 
 - Di VS Code, pilih konfigurasi **GroundTank** (`.vscode/launch.json`).
 - `env.json` wajib: tanpa kunci Supabase aplikasi tidak punya sumber data, dan
@@ -161,7 +224,8 @@ flutter build apk --release --dart-define-from-file=env.json
 - Setelah mengubah `env.json`, hentikan lalu jalankan ulang aplikasi; hot
   reload tidak membaca ulang kunci.
 - `env.json` diabaikan git. Publishable/anon key aman berada di aplikasi
-  karena akses diatur RLS. **Jangan pernah** memakai `service_role` key.
+  karena akses diatur RLS, dan perubahan pengaturan bersama butuh PIN yang
+  diperiksa server. **Jangan pernah** memakai `service_role` key.
 
 ## Struktur kode
 
@@ -169,16 +233,18 @@ flutter build apk --release --dart-define-from-file=env.json
 lib/
   background/   # pemeriksaan berkala Android (WorkManager) saat app ditutup
   config/       # kunci Supabase dari --dart-define-from-file
-  models/       # konfigurasi tangki, pembacaan, status, baris tabel Supabase
+  models/       # konfigurasi tangki, pengaturan bersama, pembacaan, status,
+                # baris tabel Supabase
   services/     # konversi nilai & aturan status (logika murni, diuji),
                 # query Supabase (TankRepository), sumber data,
                 # evaluasi notifikasi, penyimpanan lokal, format teks
-  providers/    # state: konfigurasi, monitor (riwayat + Realtime + polling),
-                # database, riwayat notifikasi, tema
+  providers/    # state: konfigurasi, sinkron pengaturan bersama, monitor
+                # (riwayat + Realtime + polling), database, notifikasi, tema
   screens/      # Dashboard, Notifikasi, Pengaturan, pemilih perangkat & sensor
   widgets/      # komponen UI, gauge tangki, grafik, kartu ringkasan
   theme/        # warna (terang + gelap), tipografi, animasi
-supabase/       # setup.sql (index, RLS, Realtime), seed.sql (data dummy)
+supabase/       # setup.sql (index, RLS, Realtime, pengaturan bersama + PIN),
+                # seed.sql (data dummy)
 firmware/       # panduan unggah data perangkat ke Supabase
 tool/           # make_icon.py: menggambar ulang ikon aplikasi
 ```

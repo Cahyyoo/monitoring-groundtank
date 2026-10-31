@@ -71,6 +71,10 @@ double? parseValue(String? text) {
   return parsed != null && parsed.isFinite ? parsed : null;
 }
 
+/// A float switch reports `1` when lifted (the tank is full) and `0` when
+/// down; anything from half up counts as lifted.
+bool floatIsFull(double value) => value >= 0.5;
+
 /// One reading, in every unit the dashboard shows, clamped to the tank.
 TankReading readingFrom({
   required double value,

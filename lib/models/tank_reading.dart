@@ -10,6 +10,8 @@ class TankReading {
     required this.volumeLiters,
     required this.measuredAt,
     this.distanceCm,
+    this.floatFull,
+    this.floatAt,
   });
 
   /// 0–100, clamped.
@@ -25,4 +27,20 @@ class TankReading {
 
   /// The raw ultrasonic distance, when the device reported one.
   final double? distanceCm;
+
+  /// Whether the float switch is lifted, as of [floatAt]. Null when the tank
+  /// has no float sensor or it has not reported yet.
+  final bool? floatFull;
+  final DateTime? floatAt;
+
+  /// The same level with the float switch's latest state.
+  TankReading withFloat(bool? full, DateTime? at) => TankReading(
+    percent: percent,
+    levelCm: levelCm,
+    volumeLiters: volumeLiters,
+    measuredAt: measuredAt,
+    distanceCm: distanceCm,
+    floatFull: full,
+    floatAt: at,
+  );
 }

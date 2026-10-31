@@ -4,14 +4,13 @@ import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/date_symbol_data_local.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'background/background_monitor.dart';
-import 'config/env.dart';
 import 'models/tank_config.dart';
 import 'providers/alerts_provider.dart';
 import 'providers/config_provider.dart';
 import 'providers/monitor_provider.dart';
+import 'providers/shared_settings_provider.dart';
 import 'providers/theme_provider.dart';
 import 'screens/home_shell.dart';
 import 'services/notification_service.dart';
@@ -24,7 +23,6 @@ Future<void> main() async {
   // "configuration loading" state: Indonesian month names and the saved tank.
   await initializeDateFormatting('id');
   final config = await SettingsService.loadConfig();
-  await _initSupabase();
 
   runApp(
     ProviderScope(
@@ -34,21 +32,6 @@ Future<void> main() async {
   );
 
   unawaited(_startServices(config));
-}
-
-/// Only when this build carries keys (`--dart-define-from-file=env.json`).
-/// A failure leaves `supabaseClientProvider` reading as null, and the
-/// dashboard and Settings explain why there is no data.
-Future<void> _initSupabase() async {
-  if (!Env.isSupabaseConfigured) return;
-  try {
-    await Supabase.initialize(
-      url: Env.supabaseUrl,
-      publishableKey: Env.supabaseKey,
-    );
-  } catch (e) {
-    debugPrint('Supabase unavailable: $e');
-  }
 }
 
 Future<void> _startServices(TankConfig config) async {
@@ -89,7 +72,7 @@ class GroundTankApp extends ConsumerWidget {
 }
 
 /// Starts and stops polling with the app's lifecycle, and fetches at once when
-/// the connection comes back.
+/// the connection comes back. Keeps the shared tank settings current too.
 class MonitorScope extends ConsumerStatefulWidget {
   const MonitorScope({required this.child, super.key});
 
@@ -107,11 +90,13 @@ class _MonitorScopeState extends ConsumerState<MonitorScope>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    // Built here so polling starts with the first frame.
+    // Built here so polling and the settings sync start with the first frame.
     ref.read(monitorProvider);
+    ref.read(sharedSettingsProvider);
     try {
       _connectivity = Connectivity().onConnectivityChanged.listen((results) {
         if (results.any((r) => r != ConnectivityResult.none)) {
+          ref.read(sharedSettingsProvider.notifier).refresh();
           ref.read(monitorProvider.notifier).refresh();
         }
       });
@@ -134,8 +119,10 @@ class _MonitorScopeState extends ConsumerState<MonitorScope>
     switch (state) {
       case AppLifecycleState.resumed:
         monitor.foreground = true;
-        // The background check may have logged alerts while we were away.
+        // The background check may have logged alerts while we were away,
+        // and another phone may have changed the shared settings.
         ref.read(alertsProvider.notifier).reload();
+        ref.read(sharedSettingsProvider.notifier).refresh();
       case AppLifecycleState.inactive:
         // A notification shade over a screen that is still showing.
         break;

@@ -40,8 +40,7 @@ dependencies:
   connectivity_plus: ^7.3.2
   flutter_local_notifications: ^22.3.2
   workmanager: ^0.10.10
-  supabase_flutter: ^2.18.3
-
+  supabase: ^2.16.5
 dev_dependencies:
   flutter_test:
     sdk: flutter
@@ -59,14 +58,12 @@ dev_dependencies:
 # The following section is specific to Flutter packages.
 flutter:
 
-  # The following line ensures that the Material Icons font is
-  # included with your application, so that you can use the icons in
-  # the material Icons class.
-  uses-material-design: true
+  # Every icon is a CupertinoIcon, so the Material Icons font is left out.
+  uses-material-design: false
 
-  # Plus Jakarta Sans, bundled (OFL; licence beside the files) — the same
-  # subset faces Atara ships, so the app works on a site with no internet.
-  # The subset covers Latin, digits and a few symbols (° ³ · – …) only.
+  # Plus Jakarta Sans, bundled (OFL; licence beside the files) as small
+  # subsets, so the app works on a site with no internet. The subset covers
+  # Latin, digits and a few symbols (° ³ · – …) only.
   fonts:
     - family: PlusJakartaSans
       fonts:
