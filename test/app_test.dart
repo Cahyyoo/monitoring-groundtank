@@ -13,6 +13,7 @@ import 'package:groundtank/providers/monitor_provider.dart';
 import 'package:groundtank/services/tank_repository.dart';
 import 'package:groundtank/services/tank_source.dart';
 import 'package:intl/date_symbol_data_local.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase/supabase.dart';
 
@@ -68,6 +69,33 @@ void main() {
   setUpAll(() => initializeDateFormatting('id'));
 
   chartFilterTests();
+
+  testWidgets('Settings shows the installed version', (tester) async {
+    SharedPreferences.setMockInitialValues({});
+    PackageInfo.setMockInitialValues(
+      appName: 'GroundTank',
+      packageName: 'com.groundtank.groundtank',
+      version: '1.2.3',
+      buildNumber: '4',
+      buildSignature: '',
+    );
+    // Tall enough that the whole Settings list is built, not just its top.
+    tester.view
+      ..physicalSize = const Size(800, 2400)
+      ..devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+
+    await tester.pumpWidget(const ProviderScope(child: GroundTankApp()));
+    await tester.pump(const Duration(milliseconds: 100));
+    await tester.tap(find.text('Pengaturan'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 500));
+
+    expect(find.text('Versi aplikasi'), findsOneWidget);
+    expect(find.text('1.2.3'), findsOneWidget);
+
+    await tester.pumpWidget(const SizedBox());
+  });
 
   testWidgets('dashboard shows the level and logs a full tank once', (
     tester,

@@ -747,12 +747,17 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
               ),
           ],
         ),
-        Center(
-          child: Text(
-            'GroundTank ${ref.watch(_appVersionProvider).valueOrNull ?? ''}'
-                .trim(),
-            style: AppText.caption.copyWith(color: palette.tertiaryLabel),
-          ),
+        InsetSection(
+          header: 'Tentang aplikasi',
+          children: [
+            InsetRow(
+              title: 'Versi aplikasi',
+              trailing: Text(
+                ref.watch(_appVersionProvider).valueOrNull ?? '–',
+                style: AppText.body.copyWith(color: palette.secondaryLabel),
+              ),
+            ),
+          ],
         ),
       ],
     );
