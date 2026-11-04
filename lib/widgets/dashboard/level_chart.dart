@@ -4,18 +4,23 @@ import '../../models/tank_reading.dart';
 import '../../services/format.dart';
 import '../../theme/app_theme.dart';
 
-/// The last few minutes of readings as a line, with the two thresholds drawn
-/// across it.
+/// Readings from [from] to [to] as a line, with the two thresholds drawn
+/// across it. The axis follows the range rather than the data, so a stretch
+/// with no readings shows as a gap at either end.
 class LevelChart extends StatelessWidget {
   const LevelChart({
     super.key,
     required this.history,
+    required this.from,
+    required this.to,
     required this.fullThreshold,
     required this.emptyThreshold,
     this.height = 160,
   });
 
   final List<TankReading> history;
+  final DateTime from;
+  final DateTime to;
   final int fullThreshold;
   final int emptyThreshold;
   final double height;
@@ -30,7 +35,7 @@ class LevelChart extends StatelessWidget {
         height: height,
         child: Center(
           child: Text(
-            'Mengumpulkan data…',
+            'Belum cukup data pada rentang ini.',
             style: AppText.footnote.copyWith(color: palette.secondaryLabel),
           ),
         ),
@@ -45,6 +50,8 @@ class LevelChart extends StatelessWidget {
           child: CustomPaint(
             painter: _ChartPainter(
               history: history,
+              from: from,
+              to: to,
               full: fullThreshold.toDouble(),
               empty: emptyThreshold.toDouble(),
               line: palette.accent,
@@ -61,8 +68,8 @@ class LevelChart extends StatelessWidget {
           child: Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Text(Format.clock(history.first.measuredAt), style: caption),
-              Text(Format.clock(history.last.measuredAt), style: caption),
+              Text(Format.chartTime(from), style: caption),
+              Text(Format.chartTime(to), style: caption),
             ],
           ),
         ),
@@ -74,6 +81,8 @@ class LevelChart extends StatelessWidget {
 class _ChartPainter extends CustomPainter {
   _ChartPainter({
     required this.history,
+    required this.from,
+    required this.to,
     required this.full,
     required this.empty,
     required this.line,
@@ -86,6 +95,8 @@ class _ChartPainter extends CustomPainter {
   static const double axisWidth = 34;
 
   final List<TankReading> history;
+  final DateTime from;
+  final DateTime to;
   final double full;
   final double empty;
   final Color line;
@@ -99,11 +110,8 @@ class _ChartPainter extends CustomPainter {
     final plot = Rect.fromLTRB(axisWidth, 6, size.width, size.height - 6);
     double yOf(double percent) => plot.bottom - plot.height * percent / 100;
 
-    final start = history.first.measuredAt.millisecondsSinceEpoch;
-    final span = (history.last.measuredAt.millisecondsSinceEpoch - start).clamp(
-      1,
-      1 << 62,
-    );
+    final start = from.millisecondsSinceEpoch;
+    final span = (to.millisecondsSinceEpoch - start).clamp(1, 1 << 62);
     double xOf(TankReading r) =>
         plot.left +
         plot.width * (r.measuredAt.millisecondsSinceEpoch - start) / span;
@@ -177,6 +185,8 @@ class _ChartPainter extends CustomPainter {
   @override
   bool shouldRepaint(_ChartPainter old) =>
       !identical(old.history, history) ||
+      old.from != from ||
+      old.to != to ||
       old.full != full ||
       old.empty != empty ||
       old.line != line ||

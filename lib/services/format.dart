@@ -12,6 +12,10 @@ abstract final class Format {
   /// `7.200 L`
   static String liters(double value) => '${_whole.format(value.round())} L';
 
+  /// `17,4 MB`
+  static String megabytes(int bytes) =>
+      '${_oneDecimal.format(bytes / (1024 * 1024))} MB';
+
   /// `145 cm`
   static String cm(double value) => '${_whole.format(value.round())} cm';
 
@@ -32,6 +36,13 @@ abstract final class Format {
 
   /// `14.03.22`
   static String clock(DateTime at) => DateFormat('HH.mm.ss', 'id').format(at);
+
+  /// `4 Nov, 14.03`, for the ends of the chart.
+  static String chartTime(DateTime at) =>
+      DateFormat('d MMM, HH.mm', 'id').format(at);
+
+  /// `4 Nov 2026`
+  static String date(DateTime at) => DateFormat('d MMM yyyy', 'id').format(at);
 
   /// `22 Okt 2026, 14.03`
   static String dateTime(DateTime at) =>

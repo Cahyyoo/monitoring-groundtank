@@ -27,6 +27,15 @@ class _FakeSource extends TankSource {
     volumeLiters: percent * 50,
     measuredAt: DateTime.now(),
   );
+
+  /// How long each range the chart asked for was.
+  final chartSpans = <Duration>[];
+
+  @override
+  Future<List<TankReading>> chart(DateTime from, DateTime to) async {
+    chartSpans.add(to.difference(from));
+    return const [];
+  }
 }
 
 /// A repository whose admin PIN is 123456, and that never touches a network.
@@ -57,6 +66,8 @@ class _FakeRepository extends TankRepository {
 
 void main() {
   setUpAll(() => initializeDateFormatting('id'));
+
+  chartFilterTests();
 
   testWidgets('dashboard shows the level and logs a full tank once', (
     tester,
@@ -193,6 +204,71 @@ void main() {
     expect(heightField().enabled, isTrue);
 
     await tester.pump(const Duration(seconds: 3));
+    await tester.pumpWidget(const SizedBox());
+  });
+}
+
+void chartFilterTests() {
+  testWidgets('chart starts on 12 hours and follows the filter', (
+    tester,
+  ) async {
+    SharedPreferences.setMockInitialValues({});
+    final source = _FakeSource();
+    tester.view
+      ..physicalSize = const Size(800, 2400)
+      ..devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          configProvider.overrideWith(
+            (ref) => ConfigNotifier(
+              const TankConfig(deviceId: 'device-1', sensorId: 'sensor-1'),
+            ),
+          ),
+          tankSourceProvider.overrideWithValue(source),
+        ],
+        child: const GroundTankApp(),
+      ),
+    );
+    // Not pumpAndSettle, as the water never stops moving: one frame starts the
+    // animation and a second lands past its end.
+    Future<void> settle() async {
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 800));
+    }
+
+    await settle();
+    expect(source.chartSpans.last, const Duration(hours: 12));
+
+    await tester.tap(find.text('7 hari'));
+    await settle();
+    expect(source.chartSpans.last, const Duration(days: 7));
+
+    // Cancelling the date sheet leaves the range as it was.
+    await tester.tap(find.text('Rentang tanggal'));
+    await settle();
+    await tester.tap(find.text('Batal'));
+    await settle();
+    expect(find.text('Terapkan'), findsNothing);
+    expect(find.text('Pilih tanggal'), findsOneWidget);
+    expect(source.chartSpans.last, const Duration(days: 7));
+
+    // Applying it, with today at both ends, shows and uses the span.
+    await tester.tap(find.text('Rentang tanggal'));
+    await settle();
+    await tester.tap(find.text('Terapkan'));
+    await settle();
+    expect(find.text('Pilih tanggal'), findsNothing);
+    expect(source.chartSpans.last, lessThanOrEqualTo(const Duration(days: 1)));
+
+    // And a preset takes over from it again.
+    await tester.tap(find.text('24 jam'));
+    await settle();
+    expect(find.text('Pilih tanggal'), findsOneWidget);
+    expect(source.chartSpans.last, const Duration(hours: 24));
+
     await tester.pumpWidget(const SizedBox());
   });
 }

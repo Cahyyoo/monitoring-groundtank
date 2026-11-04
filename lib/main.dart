@@ -1,13 +1,18 @@
 import 'dart:async';
+import 'dart:io' show Platform;
 
 import 'package:connectivity_plus/connectivity_plus.dart';
+import 'package:flutter/foundation.dart' show kReleaseMode;
 import 'package:flutter/material.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/date_symbol_data_local.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 
 import 'background/background_monitor.dart';
 import 'models/tank_config.dart';
 import 'providers/alerts_provider.dart';
+import 'providers/chart_provider.dart';
 import 'providers/config_provider.dart';
 import 'providers/monitor_provider.dart';
 import 'providers/shared_settings_provider.dart';
@@ -15,7 +20,9 @@ import 'providers/theme_provider.dart';
 import 'screens/home_shell.dart';
 import 'services/notification_service.dart';
 import 'services/settings_service.dart';
+import 'services/update_service.dart';
 import 'theme/app_theme.dart';
+import 'widgets/update_dialog.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -57,6 +64,11 @@ class GroundTankApp extends ConsumerWidget {
       theme: AppTheme.light,
       darkTheme: AppTheme.dark,
       themeMode: ref.watch(themeModeProvider),
+      // For the month names in the date picker; every other word in the app
+      // is written out in Indonesian already.
+      locale: const Locale('id'),
+      supportedLocales: const [Locale('id')],
+      localizationsDelegates: GlobalMaterialLocalizations.delegates,
       // CupertinoPageScaffold installs no ambient text style, so without this
       // every Text falls back to the framework's yellow-underlined error style.
       builder: (context, child) => DefaultTextStyle(
@@ -85,11 +97,14 @@ class MonitorScope extends ConsumerStatefulWidget {
 class _MonitorScopeState extends ConsumerState<MonitorScope>
     with WidgetsBindingObserver {
   StreamSubscription<List<ConnectivityResult>>? _connectivity;
+  DateTime? _lastUpdateCheck;
+  bool _updateDialogOpen = false;
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    WidgetsBinding.instance.addPostFrameCallback((_) => _checkForUpdate());
     // Built here so polling and the settings sync start with the first frame.
     ref.read(monitorProvider);
     ref.read(sharedSettingsProvider);
@@ -98,12 +113,33 @@ class _MonitorScopeState extends ConsumerState<MonitorScope>
         if (results.any((r) => r != ConnectivityResult.none)) {
           ref.read(sharedSettingsProvider.notifier).refresh();
           ref.read(monitorProvider.notifier).refresh();
+          ref.invalidate(chartReadingsProvider);
         }
       });
     } catch (_) {
       // No connectivity channel (tests, unsupported platform): the timer and
       // pull-to-refresh still cover it.
     }
+  }
+
+  /// On launch, and again on return if the app has stayed open for long: a
+  /// monitoring app may not be closed for weeks. Release builds on Android
+  /// only; a debug build could not install a differently signed APK anyway.
+  Future<void> _checkForUpdate() async {
+    if (!kReleaseMode || !Platform.isAndroid || _updateDialogOpen) return;
+    final now = DateTime.now();
+    final last = _lastUpdateCheck;
+    if (last != null && now.difference(last) < const Duration(hours: 12)) {
+      return;
+    }
+    _lastUpdateCheck = now;
+
+    final info = await PackageInfo.fromPlatform();
+    final release = await fetchNewerRelease(info.version);
+    if (release == null || !mounted || _updateDialogOpen) return;
+    _updateDialogOpen = true;
+    await showUpdateDialog(context, release);
+    _updateDialogOpen = false;
   }
 
   @override
@@ -123,6 +159,8 @@ class _MonitorScopeState extends ConsumerState<MonitorScope>
         // and another phone may have changed the shared settings.
         ref.read(alertsProvider.notifier).reload();
         ref.read(sharedSettingsProvider.notifier).refresh();
+        ref.invalidate(chartReadingsProvider);
+        _checkForUpdate();
       case AppLifecycleState.inactive:
         // A notification shade over a screen that is still showing.
         break;

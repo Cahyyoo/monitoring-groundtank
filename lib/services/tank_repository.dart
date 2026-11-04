@@ -68,6 +68,33 @@ class TankRepository {
     return rows.map(SensorReading.fromRow).nonNulls.toList().reversed.toList();
   });
 
+  /// Readings from [from] up to [to] averaged by the server into at most
+  /// [points] rows, oldest first, since a long range holds far more rows than
+  /// one request returns.
+  Future<List<SensorReading>> fetchBuckets(
+    String deviceId,
+    String sensorId,
+    DateTime from,
+    DateTime to, {
+    required int points,
+  }) => _guard(() async {
+    final rows = await _client.rpc<List<dynamic>>(
+      'sensor_readings_buckets',
+      params: {
+        'p_device_id': deviceId,
+        'p_sensor_id': sensorId,
+        'p_from': from.toUtc().toIso8601String(),
+        'p_to': to.toUtc().toIso8601String(),
+        'p_buckets': points,
+      },
+    );
+    return rows
+        .cast<Map<String, dynamic>>()
+        .map(SensorReading.fromRow)
+        .nonNulls
+        .toList();
+  });
+
   /// New rows for [sensorId] as they are inserted.
   ///
   /// Realtime accepts one filter per subscription, so the server filters on

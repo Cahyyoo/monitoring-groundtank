@@ -2,6 +2,7 @@ import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart' show ThemeMode;
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 
 import '../background/background_monitor.dart';
 import '../models/device.dart';
@@ -25,6 +26,10 @@ import '../widgets/ios/inset_section.dart';
 import '../widgets/ios/pin_dialog.dart';
 import 'device_picker_screen.dart';
 import 'sensor_picker_screen.dart';
+
+final _appVersionProvider = FutureProvider<String>(
+  (ref) async => (await PackageInfo.fromPlatform()).version,
+);
 
 /// Two kinds of settings, saved two ways.
 ///
@@ -744,7 +749,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
         ),
         Center(
           child: Text(
-            'GroundTank 1.0.0',
+            'GroundTank ${ref.watch(_appVersionProvider).valueOrNull ?? ''}'
+                .trim(),
             style: AppText.caption.copyWith(color: palette.tertiaryLabel),
           ),
         ),

@@ -21,7 +21,11 @@ data dummy dari [`supabase/seed.sql`](supabase/seed.sql).
   - *Ruang kosong*: liter yang belum terisi.
   - *Tren*: Mengisi / Berkurang / Stabil, laju %/menit, dan perkiraan waktu
     sampai penuh atau kosong.
-- **Grafik riwayat ketinggian** dengan garis batas penuh dan kosong.
+- **Grafik riwayat ketinggian** dengan garis batas penuh dan kosong. Rentangnya
+  bisa dipilih: **12 jam** (bawaan), **24 jam**, **7 hari**, **1 bulan** (30 hari
+  terakhir), atau **rentang tanggal** sendiri. Tiap rentang dirangkum menjadi
+  paling banyak 240 titik rata-rata (1 bulan: 1 titik ±3 jam), jadi kenaikan
+  singkat bisa tidak terlihat di rentang panjang.
 - **Sensor pelampung** (bila dipakai): status *Penuh* / *Belum penuh* dan
   kapan terakhir diperbarui.
 - **Banner peringatan** bila sensor tidak terhubung, perangkat berhenti
@@ -151,6 +155,8 @@ di **SQL Editor**. Isinya:
   aplikasi), tabel `settings_pin` (hash PIN, tidak terbaca aplikasi), dan
   fungsi `verify_settings_pin` / `update_tank_settings` yang memeriksa PIN dan
   memvalidasi isinya di server.
+- **`sensor_readings_buckets`**: fungsi baca untuk grafik, yang merangkum data di
+  server karena satu request tidak bisa mengambil puluhan ribu baris.
 
 ⚠️ Bila perangkat saat ini meng-*insert* `sensor_readings` memakai anon key,
 RLS akan memblokirnya. Pindahkan perangkat ke fungsi `submit_reading`.
@@ -233,6 +239,43 @@ sehingga ukurannya hampir 3×. `build/symbols` berisi simbol untuk membaca
 stack trace dari build `--obfuscate`; simpan bersama rilisnya dan jangan
 dibagikan.
 
+Build rilis butuh `android/key.properties` dan `android/upload-keystore.jks`
+(keduanya diabaikan git). Tanpa itu build berhenti dengan pesan error.
+
+### Merilis versi baru
+Aplikasi Android memeriksa
+[GitHub Release](https://github.com/Cahyyoo/monitoring-groundtank/releases) saat
+dibuka, dan saat kembali aktif bila cek terakhir lebih dari 12 jam. Bila ada versi
+lebih baru, muncul modal untuk mengunduh dan memasangnya. Android tetap meminta
+konfirmasi pemasangan, dan pertama kali juga meminta izin memasang aplikasi dari
+sumber ini.
+
+1. Naikkan `version` di `pubspec.yaml`, angka setelah `+` juga harus naik.
+   Contoh: `1.1.0+2` → `1.1.1+3`.
+2. Build dengan perintah **APK per arsitektur** di atas.
+3. Buat release bertag `vX.Y.Z` yang sama, unggah ketiga APK **tanpa mengganti
+   namanya** (aplikasi memilih file berdasarkan nama), lalu isi catatan rilis.
+   Catatannya ditampilkan di modal.
+
+```bash
+gh release create v1.1.1 --title "v1.1.1" --notes "Isi catatan rilis" \
+  build/app/outputs/flutter-apk/app-arm64-v8a-release.apk \
+  build/app/outputs/flutter-apk/app-armeabi-v7a-release.apk \
+  build/app/outputs/flutter-apk/app-x86_64-release.apk
+```
+
+Yang tidak boleh terlewat:
+- **Backup `android/upload-keystore.jks` dan `android/key.properties`** ke tempat
+  aman di luar repo. Bila hilang, HP yang sudah terpasang tidak bisa di-update lagi
+  dan harus uninstall.
+- HP yang masih memakai APK sebelum versi 1.1.0 (ditandatangani debug key) harus
+  **uninstall sekali** lalu memasang APK baru secara manual. Setelah itu update
+  berjalan otomatis. Pengaturan tangki aman di Supabase; yang hilang hanya data di
+  HP, seperti interval dan riwayat notifikasi.
+- Release bersifat publik: siapa pun bisa mengunduh APK dan **membaca** data sensor
+  dengan kunci di dalamnya, tetapi tidak bisa mengubah apa pun tanpa token perangkat
+  atau PIN admin.
+
 - Di VS Code, pilih konfigurasi **GroundTank** (`.vscode/launch.json`).
 - `env.json` wajib: tanpa kunci Supabase aplikasi tidak punya sumber data, dan
   Pengaturan menampilkan "Supabase belum dikonfigurasi".
@@ -248,11 +291,11 @@ dibagikan.
 lib/
   background/   # pemeriksaan berkala Android (WorkManager) saat app ditutup
   config/       # kunci Supabase dari --dart-define-from-file
-  models/       # konfigurasi tangki, pengaturan bersama, pembacaan, status,
-                # baris tabel Supabase
+  models/       # konfigurasi tangki, pengaturan bersama, rentang grafik,
+                # pembacaan, status, baris tabel Supabase
   services/     # konversi nilai & aturan status (logika murni, diuji),
                 # query Supabase (TankRepository), sumber data,
-                # evaluasi notifikasi, penyimpanan lokal, format teks
+                # evaluasi notifikasi, cek pembaruan, penyimpanan lokal, format teks
   providers/    # state: konfigurasi, sinkron pengaturan bersama, monitor
                 # (riwayat + Realtime + polling), database, notifikasi, tema
   screens/      # Dashboard, Notifikasi, Pengaturan, pemilih perangkat & sensor

@@ -4,8 +4,10 @@ import 'package:flutter/cupertino.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../models/chart_range.dart';
 import '../models/tank_config.dart';
 import '../models/tank_level.dart';
+import '../providers/chart_provider.dart';
 import '../providers/config_provider.dart';
 import '../providers/monitor_provider.dart';
 import '../services/format.dart';
@@ -14,6 +16,7 @@ import '../theme/app_motion.dart';
 import '../theme/app_theme.dart';
 import '../widgets/app_primitives.dart';
 import '../widgets/brand/water_header.dart';
+import '../widgets/dashboard/date_range_sheet.dart';
 import '../widgets/dashboard/level_chart.dart';
 import '../widgets/dashboard/stat_tile.dart';
 import '../widgets/dashboard/tank_gauge.dart';
@@ -121,27 +124,7 @@ class DashboardScreen extends ConsumerWidget {
             ),
           ],
         ),
-      InsetSection(
-        header: 'Riwayat ketinggian',
-        footer: state.history.isEmpty
-            ? null
-            : '${state.history.length} pembacaan terakhir, tiap ${config.pollSeconds} detik.',
-        children: [
-          InsetCustomRow(
-            padding: const EdgeInsets.fromLTRB(
-              AppSpacing.md,
-              AppSpacing.lg,
-              AppSpacing.lg,
-              AppSpacing.md,
-            ),
-            child: LevelChart(
-              history: state.history,
-              fullThreshold: config.fullThreshold,
-              emptyThreshold: config.emptyThreshold,
-            ),
-          ),
-        ],
-      ),
+      const _ChartSection(),
       InsetSection(
         header: 'Ambang notifikasi',
         footer: config.notificationsEnabled
@@ -185,8 +168,10 @@ class DashboardScreen extends ConsumerWidget {
                 ),
                 slivers: [
                   CupertinoSliverRefreshControl(
-                    onRefresh: () =>
-                        ref.read(monitorProvider.notifier).refresh(),
+                    onRefresh: () {
+                      ref.invalidate(chartReadingsProvider);
+                      return ref.read(monitorProvider.notifier).refresh();
+                    },
                   ),
                   SliverPadding(
                     padding: const EdgeInsets.fromLTRB(
@@ -540,6 +525,119 @@ class _StatsGrid extends StatelessWidget {
           ),
         ],
       ),
+    );
+  }
+}
+
+/// The level over a chosen range: the last 12 hours unless told otherwise.
+class _ChartSection extends ConsumerWidget {
+  const _ChartSection();
+
+  Future<void> _pickDates(BuildContext context, WidgetRef ref) async {
+    final current = ref.read(chartRangeProvider);
+    final span = await showDateRangeSheet(
+      context,
+      initial: current is DateSpan ? current : null,
+    );
+    if (span != null && context.mounted) {
+      ref.read(chartRangeProvider.notifier).state = span;
+    }
+  }
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final palette = context.palette;
+    final range = ref.watch(chartRangeProvider);
+    final points = ref.watch(chartReadingsProvider);
+    final config = ref.watch(configProvider);
+    final current = ref.watch(monitorProvider.select((s) => s.reading));
+
+    final now = DateTime.now();
+    final from = range.startAt(now);
+    final to = range.endAt(now);
+
+    Widget label(String text) => Padding(
+      padding: const EdgeInsets.symmetric(vertical: 6),
+      child: Text(
+        text,
+        style: AppText.footnote.copyWith(
+          color: palette.label,
+          fontWeight: FontWeight.w600,
+        ),
+      ),
+    );
+
+    Widget placeholder(Widget child) =>
+        SizedBox(height: 160, child: Center(child: child));
+
+    final Widget body;
+    String? footer;
+    if (points.hasError) {
+      body = placeholder(
+        Text(
+          points.error.toString(),
+          textAlign: TextAlign.center,
+          style: AppText.footnote.copyWith(color: palette.danger.foreground),
+        ),
+      );
+    } else if (points.isReloading || !points.hasValue) {
+      body = placeholder(const CupertinoActivityIndicator());
+    } else {
+      final series = chartSeries(points.requireValue, current, from, to);
+      body = LevelChart(
+        history: series,
+        from: from,
+        to: to,
+        fullThreshold: config.fullThreshold,
+        emptyThreshold: config.emptyThreshold,
+      );
+      if (series.isNotEmpty) {
+        final minutes = to.difference(from).inMinutes / ChartRange.maxPoints;
+        footer =
+            '${series.length} titik, tiap titik rata-rata '
+            '${Format.duration(minutes)}.';
+      }
+    }
+
+    return InsetSection(
+      header: 'Riwayat ketinggian',
+      footer: footer,
+      children: [
+        InsetCustomRow(
+          child: SizedBox(
+            width: double.infinity,
+            child: CupertinoSlidingSegmentedControl<LastPeriod>(
+              groupValue: range is LastPeriod ? range : null,
+              children: {
+                for (final preset in LastPeriod.all)
+                  preset: label(preset.label),
+              },
+              onValueChanged: (value) {
+                if (value != null) {
+                  ref.read(chartRangeProvider.notifier).state = value;
+                }
+              },
+            ),
+          ),
+        ),
+        InsetRow(
+          title: 'Rentang tanggal',
+          subtitle: range is DateSpan
+              ? '${Format.date(range.firstDay)} – ${Format.date(range.lastDay)}'
+              : 'Pilih tanggal',
+          showChevron: true,
+          onTap: () => _pickDates(context, ref),
+        ),
+        InsetCustomRow(
+          padding: const EdgeInsets.fromLTRB(
+            AppSpacing.md,
+            AppSpacing.lg,
+            AppSpacing.lg,
+            AppSpacing.md,
+          ),
+          child: body,
+        ),
+      ],
     );
   }
 }

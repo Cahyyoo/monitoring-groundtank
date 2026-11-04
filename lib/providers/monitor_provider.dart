@@ -77,14 +77,14 @@ class MonitorState {
 
 /// Watches the tank while the app is in front of someone.
 ///
-/// On start it fills the chart from [TankSource.recent], then listens to
+/// On start it reads back [TankSource.recent] for the trend, then listens to
 /// [TankSource.watch] for pushed readings (Supabase Realtime) and polls every
 /// `pollSeconds` as a safety net — Realtime may be off for the table, or the
 /// socket may have dropped without saying so.
 ///
 /// Stops in the background on purpose — the WorkManager check covers that
 /// case at a pace the battery can afford — and starts afresh on return, so
-/// readings missed meanwhile are back-filled into the chart.
+/// readings missed meanwhile are back-filled into the history.
 class MonitorNotifier extends StateNotifier<MonitorState> {
   MonitorNotifier(this._ref) : super(const MonitorState()) {
     // Any change can alter what a reading means (another device, another
@@ -149,7 +149,7 @@ class MonitorNotifier extends StateNotifier<MonitorState> {
         await _accept(history.last, generation);
       }
     } catch (_) {
-      // The chart starting empty is not worth an error; the fetch below
+      // The history starting empty is not worth an error; the fetch below
       // reports a real connection problem in its own words.
     }
     if (generation != _generation || !mounted) return;
@@ -204,7 +204,7 @@ class MonitorNotifier extends StateNotifier<MonitorState> {
     final last = state.history.lastOrNull;
     final isNewer = last == null || reading.measuredAt.isAfter(last.measuredAt);
     // The float switch can change while the level row stays the same one; that
-    // is news too, though not a new point for the chart.
+    // is news too, though not a new point in the history.
     final shown = state.reading;
     final floatChanged =
         shown != null &&

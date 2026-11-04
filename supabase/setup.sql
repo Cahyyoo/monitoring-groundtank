@@ -259,3 +259,44 @@ begin
     alter publication supabase_realtime add table public.tank_settings;
   end if;
 end $$;
+
+-- 5. Chart history: one sensor's readings between two times, averaged into at
+--    most p_buckets points. A month at one reading every 30 seconds is about
+--    86,000 rows, far past what one API request returns, so the summing up
+--    happens here. Read-only and security invoker: RLS still decides.
+create or replace function public.sensor_readings_buckets(
+  p_device_id uuid,
+  p_sensor_id uuid,
+  p_from      timestamptz,
+  p_to        timestamptz,
+  p_buckets   integer default 240
+)
+returns table ("timestamp" timestamptz, value double precision)
+language sql
+stable
+set search_path = ''
+as $$
+  select to_timestamp(avg(extract(epoch from r."timestamp")::double precision)),
+         avg(replace(btrim(r.value), ',', '.')::double precision)
+  from public.sensor_readings r
+  where r.device_id = p_device_id
+    and r.sensor_id = p_sensor_id
+    and r."timestamp" >= p_from
+    and r."timestamp" < p_to
+    and p_to > p_from
+    and btrim(r.value) ~ '^-?[0-9]+([.,][0-9]+)?$'
+  group by width_bucket(
+    extract(epoch from r."timestamp")::double precision,
+    extract(epoch from p_from)::double precision,
+    extract(epoch from p_to)::double precision,
+    least(greatest(p_buckets, 1), 1000)
+  )
+  order by 1;
+$$;
+
+revoke all on function public.sensor_readings_buckets(
+  uuid, uuid, timestamptz, timestamptz, integer
+) from public;
+grant execute on function public.sensor_readings_buckets(
+  uuid, uuid, timestamptz, timestamptz, integer
+) to anon, authenticated;

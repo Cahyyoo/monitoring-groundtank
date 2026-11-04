@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import '../models/chart_range.dart';
 import '../models/sensor_reading.dart';
 import '../models/tank_config.dart';
 import '../models/tank_reading.dart';
@@ -23,9 +24,13 @@ abstract class TankSource {
   /// The newest reading.
   Future<TankReading> fetch();
 
-  /// Readings from the last [window], oldest first, to fill the chart when
-  /// the dashboard opens instead of starting it empty.
+  /// Readings from the last [window], oldest first, so the trend can be read
+  /// as soon as the dashboard opens instead of starting empty.
   Future<List<TankReading>> recent(Duration window) async => const [];
+
+  /// Readings from [from] up to [to], averaged into no more than
+  /// [ChartRange.maxPoints] points, oldest first, for the chart.
+  Future<List<TankReading>> chart(DateTime from, DateTime to) async => const [];
 
   /// New readings as they happen, for a source that can push them. Null
   /// when the source can only be polled.
@@ -128,6 +133,19 @@ class DatabaseTankSource extends TankSource {
             ? _compose(rows[i], latestFloat)
             : _compose(rows[i], null),
     ];
+  }
+
+  @override
+  Future<List<TankReading>> chart(DateTime from, DateTime to) async {
+    final (device, sensor) = _ids;
+    final rows = await _repository.fetchBuckets(
+      device,
+      sensor,
+      from,
+      to,
+      points: ChartRange.maxPoints,
+    );
+    return [for (final row in rows) _compose(row, null)];
   }
 
   @override
