@@ -214,7 +214,18 @@ flutter run --dart-define-from-file=env.json
 flutter test
 ```
 
+- Di VS Code, pilih konfigurasi **GroundTank** (`.vscode/launch.json`).
+- `env.json` wajib: tanpa kunci Supabase aplikasi tidak punya sumber data, dan
+  Pengaturan menampilkan "Supabase belum dikonfigurasi".
+- Setelah mengubah `env.json`, hentikan lalu jalankan ulang aplikasi; hot
+  reload tidak membaca ulang kunci.
+- `env.json` diabaikan git. Publishable/anon key aman berada di aplikasi
+  karena akses diatur RLS, dan perubahan pengaturan bersama butuh PIN yang
+  diperiksa server. **Jangan pernah** memakai `service_role` key.
+
 ### Build rilis (ukuran kecil)
+Untuk mencoba APK rilis di laptop. Rilis ke pengguna dilakukan lewat
+[GitHub Actions](#merilis-versi-baru).
 
 ```bash
 # APK per arsitektur, untuk dipasang langsung
@@ -250,24 +261,46 @@ lebih baru, muncul modal untuk mengunduh dan memasangnya. Android tetap meminta
 konfirmasi pemasangan, dan pertama kali juga meminta izin memasang aplikasi dari
 sumber ini.
 
-1. Naikkan `version` di `pubspec.yaml`, angka setelah `+` juga harus naik.
-   Contoh: `1.1.0+2` → `1.1.1+3`.
-2. Build dengan perintah **APK per arsitektur** di atas.
-3. Buat release bertag `vX.Y.Z` yang sama, unggah ketiga APK **tanpa mengganti
-   namanya** (aplikasi memilih file berdasarkan nama), lalu isi catatan rilis.
-   Catatannya ditampilkan di modal.
+Rilis dibuat oleh [GitHub Actions](.github/workflows/release.yml). Setelah
+perubahan di-push, cukup kirim tag `vX.Y.Z`. Pesan tag menjadi catatan rilis di
+modal aplikasi.
 
 ```bash
-gh release create v1.1.1 --title "v1.1.1" --notes "Isi catatan rilis" \
-  build/app/outputs/flutter-apk/app-arm64-v8a-release.apk \
-  build/app/outputs/flutter-apk/app-armeabi-v7a-release.apk \
-  build/app/outputs/flutter-apk/app-x86_64-release.apk
+git push
+git tag -a v2.0.1 -m "Isi catatan rilis"
+git push origin v2.0.1
 ```
 
-Yang tidak boleh terlewat:
+Workflow lalu menjalankan test, membangun ketiga APK, dan membuat release.
+Prosesnya terlihat di tab **Actions** di GitHub. Test gagal berarti tidak ada
+rilis.
+
+- **Nama versi** diambil dari tag, dan **`versionCode`** dari nomor run + 100.
+  Keduanya tidak perlu diubah di `pubspec.yaml`, yang hanya berlaku untuk build di
+  laptop.
+- **Nomor tag harus lebih tinggi dari release terbaru.** Tag yang sudah dipakai
+  tidak bisa dikirim ulang.
+- Simbol untuk membaca stack trace tersimpan 90 hari di artifact tiap run.
+
+#### Persiapan (sekali saja)
+Simpan keystore dan `env.json` sebagai secret repo. Jalankan di Git Bash dari folder
+proyek:
+
+```bash
+base64 -w0 android/upload-keystore.jks | gh secret set KEYSTORE_BASE64
+gh secret set KEY_PROPERTIES < android/key.properties
+gh secret set ENV_JSON < env.json
+```
+
+Setelah mengganti keystore atau isi `env.json`, jalankan lagi perintah yang
+bersangkutan.
+
+#### Yang tidak boleh terlewat
+- **Jangan mengunggah APK dari laptop ke release.** `versionCode`-nya lebih kecil
+  dari hasil Actions, sehingga ditolak Android sebagai versi lebih lama.
 - **Backup `android/upload-keystore.jks` dan `android/key.properties`** ke tempat
-  aman di luar repo. Bila hilang, HP yang sudah terpasang tidak bisa di-update lagi
-  dan harus uninstall.
+  aman di luar repo. Secret tidak bisa diunduh lagi dari GitHub. Bila keduanya hilang,
+  HP yang sudah terpasang tidak bisa di-update lagi dan harus uninstall.
 - HP yang masih memakai APK sebelum versi 1.1.0 (ditandatangani debug key) harus
   **uninstall sekali** lalu memasang APK baru secara manual. Setelah itu update
   berjalan otomatis. Pengaturan tangki aman di Supabase; yang hilang hanya data di
@@ -275,15 +308,6 @@ Yang tidak boleh terlewat:
 - Release bersifat publik: siapa pun bisa mengunduh APK dan **membaca** data sensor
   dengan kunci di dalamnya, tetapi tidak bisa mengubah apa pun tanpa token perangkat
   atau PIN admin.
-
-- Di VS Code, pilih konfigurasi **GroundTank** (`.vscode/launch.json`).
-- `env.json` wajib: tanpa kunci Supabase aplikasi tidak punya sumber data, dan
-  Pengaturan menampilkan "Supabase belum dikonfigurasi".
-- Setelah mengubah `env.json`, hentikan lalu jalankan ulang aplikasi; hot
-  reload tidak membaca ulang kunci.
-- `env.json` diabaikan git. Publishable/anon key aman berada di aplikasi
-  karena akses diatur RLS, dan perubahan pengaturan bersama butuh PIN yang
-  diperiksa server. **Jangan pernah** memakai `service_role` key.
 
 ## Struktur kode
 
