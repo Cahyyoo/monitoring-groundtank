@@ -4,7 +4,6 @@ import 'dart:io' show Platform;
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter/foundation.dart' show kReleaseMode;
 import 'package:flutter/material.dart';
-import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/date_symbol_data_local.dart';
 import 'package:package_info_plus/package_info_plus.dart';
@@ -64,11 +63,6 @@ class GroundTankApp extends ConsumerWidget {
       theme: AppTheme.light,
       darkTheme: AppTheme.dark,
       themeMode: ref.watch(themeModeProvider),
-      // For the month names in the date picker; every other word in the app
-      // is written out in Indonesian already.
-      locale: const Locale('id'),
-      supportedLocales: const [Locale('id')],
-      localizationsDelegates: GlobalMaterialLocalizations.delegates,
       // CupertinoPageScaffold installs no ambient text style, so without this
       // every Text falls back to the framework's yellow-underlined error style.
       builder: (context, child) => DefaultTextStyle(

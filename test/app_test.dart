@@ -258,6 +258,8 @@ void chartFilterTests() {
     // Applying it, with today at both ends, shows and uses the span.
     await tester.tap(find.text('Rentang tanggal'));
     await settle();
+    await tester.tap(find.text('${DateTime.now().day}').last);
+    await tester.pump();
     await tester.tap(find.text('Terapkan'));
     await settle();
     expect(find.text('Pilih tanggal'), findsNothing);
