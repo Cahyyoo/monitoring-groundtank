@@ -72,6 +72,9 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          # Checkout fetched the tag by its commit, which drops the tag's
+          # message; without the real tag the notes would be the commit's.
+          git fetch --force --depth=1 origin "refs/tags/$GITHUB_REF_NAME:refs/tags/$GITHUB_REF_NAME"
           gh release create "$GITHUB_REF_NAME" \
             --title "$GITHUB_REF_NAME" \
             --notes-from-tag \
