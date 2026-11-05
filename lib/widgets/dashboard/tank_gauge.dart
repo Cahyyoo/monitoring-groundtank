@@ -72,7 +72,7 @@ class _TankGaugeState extends State<TankGauge>
           animation: _wave,
           builder: (context, _) => CustomPaint(
             size: Size(widget.width, widget.height),
-            painter: _TankPainter(
+            painter: TankPainter(
               level: widget.percent == null ? 0 : level,
               phase: _wave.value,
               full: widget.fullThreshold / 100,
@@ -87,20 +87,22 @@ class _TankGaugeState extends State<TankGauge>
   }
 }
 
-class _TankPainter extends CustomPainter {
-  _TankPainter({
+/// The tank itself, also drawn by the splash. Without [full] and [empty] it has
+/// no threshold lines.
+class TankPainter extends CustomPainter {
+  TankPainter({
     required this.level,
     required this.phase,
-    required this.full,
-    required this.empty,
+    this.full,
+    this.empty,
     required this.glass,
     required this.water,
   });
 
   final double level;
   final double phase;
-  final double full;
-  final double empty;
+  final double? full;
+  final double? empty;
   final Color glass;
   final LinearGradient water;
 
@@ -142,8 +144,9 @@ class _TankPainter extends CustomPainter {
       canvas.drawLine(Offset(0, y), Offset(q == 0.5 ? 14 : 9, y), tick);
     }
 
-    _dashed(canvas, size, full);
-    _dashed(canvas, size, empty);
+    for (final at in [full, empty]) {
+      if (at != null) _dashed(canvas, size, at);
+    }
     canvas.restore();
 
     canvas.drawRRect(
@@ -194,7 +197,7 @@ class _TankPainter extends CustomPainter {
   }
 
   @override
-  bool shouldRepaint(_TankPainter old) =>
+  bool shouldRepaint(TankPainter old) =>
       old.level != level ||
       old.phase != phase ||
       old.full != full ||

@@ -8,7 +8,13 @@ terpusat di Supabase dan dikunci dengan PIN admin, sehingga semua HP memantau
 tangki yang sama dengan cara yang sama. Untuk mencoba tanpa perangkat, isi
 data dummy dari [`supabase/seed.sql`](supabase/seed.sql).
 
+Ingin ikut mengembangkan aplikasi ini? Mulai dari
+[**panduan developer**](DEVELOPMENT.md).
+
 ## Isi aplikasi
+
+Saat dibuka, aplikasi menampilkan animasi tangki terisi dan nama aplikasi selama
+2 detik, lalu memudar ke dashboard.
 
 ### Dashboard
 - **Gauge tangki** beranimasi dengan permukaan air bergelombang dan dua garis
@@ -261,53 +267,9 @@ lebih baru, muncul modal untuk mengunduh dan memasangnya. Android tetap meminta
 konfirmasi pemasangan, dan pertama kali juga meminta izin memasang aplikasi dari
 sumber ini.
 
-Rilis dibuat oleh [GitHub Actions](.github/workflows/release.yml). Setelah
-perubahan di-push, cukup kirim tag `vX.Y.Z`. Pesan tag menjadi catatan rilis di
-modal aplikasi.
-
-```bash
-git push
-git tag -a v2.0.1 -m "Isi catatan rilis"
-git push origin v2.0.1
-```
-
-Workflow lalu menjalankan test, membangun ketiga APK, dan membuat release.
-Prosesnya terlihat di tab **Actions** di GitHub. Test gagal berarti tidak ada
-rilis.
-
-- **Nama versi** diambil dari tag, dan **`versionCode`** dari nomor run + 100.
-  Keduanya tidak perlu diubah di `pubspec.yaml`, yang hanya berlaku untuk build di
-  laptop.
-- **Nomor tag harus lebih tinggi dari release terbaru.** Tag yang sudah dipakai
-  tidak bisa dikirim ulang.
-- Simbol untuk membaca stack trace tersimpan 90 hari di artifact tiap run.
-
-#### Persiapan (sekali saja)
-Simpan keystore dan `env.json` sebagai secret repo. Jalankan di Git Bash dari folder
-proyek:
-
-```bash
-base64 -w0 android/upload-keystore.jks | gh secret set KEYSTORE_BASE64
-gh secret set KEY_PROPERTIES < android/key.properties
-gh secret set ENV_JSON < env.json
-```
-
-Setelah mengganti keystore atau isi `env.json`, jalankan lagi perintah yang
-bersangkutan.
-
-#### Yang tidak boleh terlewat
-- **Jangan mengunggah APK dari laptop ke release.** `versionCode`-nya lebih kecil
-  dari hasil Actions, sehingga ditolak Android sebagai versi lebih lama.
-- **Backup `android/upload-keystore.jks` dan `android/key.properties`** ke tempat
-  aman di luar repo. Secret tidak bisa diunduh lagi dari GitHub. Bila keduanya hilang,
-  HP yang sudah terpasang tidak bisa di-update lagi dan harus uninstall.
-- HP yang masih memakai APK sebelum versi 1.1.0 (ditandatangani debug key) harus
-  **uninstall sekali** lalu memasang APK baru secara manual. Setelah itu update
-  berjalan otomatis. Pengaturan tangki aman di Supabase; yang hilang hanya data di
-  HP, seperti interval dan riwayat notifikasi.
-- Release bersifat publik: siapa pun bisa mengunduh APK dan **membaca** data sensor
-  dengan kunci di dalamnya, tetapi tidak bisa mengubah apa pun tanpa token perangkat
-  atau PIN admin.
+Rilis dibuat oleh [GitHub Actions](.github/workflows/release.yml) setiap kali tag
+`vX.Y.Z` dikirim. Langkah dan persiapannya ada di
+[panduan developer](DEVELOPMENT.md#4-update-versi).
 
 ## Struktur kode
 

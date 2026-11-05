@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- heroStart in lib/theme/app_colors.dart, so the launch runs into the splash. -->
+    <color name="splash_background">#051530</color>
+</resources>

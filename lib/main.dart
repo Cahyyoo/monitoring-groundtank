@@ -21,6 +21,7 @@ import 'services/notification_service.dart';
 import 'services/settings_service.dart';
 import 'services/update_service.dart';
 import 'theme/app_theme.dart';
+import 'widgets/brand/app_splash.dart';
 import 'widgets/update_dialog.dart';
 
 Future<void> main() async {
@@ -33,7 +34,7 @@ Future<void> main() async {
   runApp(
     ProviderScope(
       overrides: [configProvider.overrideWith((ref) => ConfigNotifier(config))],
-      child: const GroundTankApp(),
+      child: const GroundTankApp(showSplash: true),
     ),
   );
 
@@ -50,7 +51,10 @@ Future<void> _startServices(TankConfig config) async {
 }
 
 class GroundTankApp extends ConsumerWidget {
-  const GroundTankApp({super.key});
+  const GroundTankApp({super.key, this.showSplash = false});
+
+  /// Whether a launch of the app opens with the splash.
+  final bool showSplash;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -70,7 +74,7 @@ class GroundTankApp extends ConsumerWidget {
           color: context.palette.label,
           decoration: TextDecoration.none,
         ),
-        child: child!,
+        child: showSplash ? SplashOverlay(child: child!) : child!,
       ),
       home: const MonitorScope(child: HomeShell()),
     );
