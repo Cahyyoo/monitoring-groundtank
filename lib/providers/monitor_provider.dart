@@ -139,10 +139,9 @@ class MonitorNotifier extends StateNotifier<MonitorState> {
     state = MonitorState(lastAlert: state.lastAlert, isFetching: true);
 
     try {
-      final window = Duration(
-        seconds: (config.pollSeconds * historyLimit).clamp(60, 3600),
-      );
-      final history = await source.recent(window);
+      // An hour: enough points for the trend and the send interval whether
+      // the device sends every 30 seconds (the cap) or every 5 minutes.
+      final history = await source.recent(const Duration(hours: 1));
       if (generation != _generation || !mounted) return;
       if (history.isNotEmpty) {
         state = state.copyWith(history: history.sublist(0, history.length - 1));
@@ -197,10 +196,8 @@ class MonitorNotifier extends StateNotifier<MonitorState> {
   Future<void> _accept(TankReading reading, int generation) async {
     if (generation != _generation || !mounted) return;
     final config = _config;
-    final outdated = isStale(
-      reading.measuredAt,
-      pollSeconds: config.pollSeconds,
-    );
+    final interval = sendInterval(state.history);
+    final outdated = isStale(reading.measuredAt, interval: interval);
     final last = state.history.lastOrNull;
     final isNewer = last == null || reading.measuredAt.isAfter(last.measuredAt);
     // The float switch can change while the level row stays the same one; that
@@ -218,7 +215,7 @@ class MonitorNotifier extends StateNotifier<MonitorState> {
         reading: state.reading ?? last,
         error: () => null,
         isFetching: false,
-        isOutdated: isStale(last.measuredAt, pollSeconds: config.pollSeconds),
+        isOutdated: isStale(last.measuredAt, interval: interval),
       );
       return;
     }

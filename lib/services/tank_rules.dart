@@ -126,19 +126,38 @@ FloatMismatch? floatMismatch(TankReading reading, TankConfig config) {
   };
 }
 
+/// How often the device sends, read from the gaps between its last few
+/// readings rather than configured, so a firmware that changes its pace needs
+/// no change here. The median, so one missed send does not double it. Null
+/// with fewer than two readings.
+Duration? sendInterval(List<TankReading> history) {
+  if (history.length < 2) return null;
+  final recent = history.length > 7
+      ? history.sublist(history.length - 7)
+      : history;
+  final gaps = [
+    for (var i = 1; i < recent.length; i++)
+      recent[i].measuredAt.difference(recent[i - 1].measuredAt),
+  ]..sort();
+  return gaps[gaps.length ~/ 2];
+}
+
+/// Three sends at [interval], but never under two minutes. A device not yet
+/// measured is taken to send every five minutes, the pace the firmware guide
+/// recommends.
+Duration _threeSends(Duration? interval) {
+  final span = (interval ?? const Duration(minutes: 5)) * 3;
+  return span < const Duration(minutes: 2) ? const Duration(minutes: 2) : span;
+}
+
 /// Whether the newest reading is too old to be trusted as "now".
 ///
 /// A device that lost power or Wi-Fi leaves its last row in the table, and
 /// the dashboard would otherwise keep presenting it as the current level.
-/// Allowed: three missed polling intervals, but never less than two minutes,
-/// since sketches commonly send once a minute however fast the app polls.
-bool isStale(DateTime measuredAt, {required int pollSeconds, DateTime? now}) {
-  final allowed = Duration(seconds: pollSeconds * 3);
-  final limit = allowed < const Duration(minutes: 2)
-      ? const Duration(minutes: 2)
-      : allowed;
-  return (now ?? DateTime.now()).difference(measuredAt) > limit;
-}
+/// Allowed: three missed sends at the device's own [interval] (see
+/// [sendInterval]), however fast the app itself polls.
+bool isStale(DateTime measuredAt, {Duration? interval, DateTime? now}) =>
+    (now ?? DateTime.now()).difference(measuredAt) > _threeSends(interval);
 
 /// Which way the level is moving.
 enum TrendDirection { filling, draining, steady }
@@ -152,18 +171,16 @@ class Trend {
   final double percentPerMinute;
 }
 
-/// The direction and speed of the last couple of minutes of readings.
+/// The direction and speed of the readings over the last three sends (at
+/// least two minutes), so a device sending every five minutes still has a
+/// few points to go on.
 ///
 /// Null until there is enough history to say — two readings at least ten
 /// seconds apart — so the dashboard shows "menghitung…" rather than a guess.
-Trend? trendOf(
-  List<TankReading> history, {
-  Duration window = const Duration(minutes: 2),
-  double steadyBelow = 0.3,
-}) {
+Trend? trendOf(List<TankReading> history, {double steadyBelow = 0.3}) {
   if (history.length < 2) return null;
   final last = history.last;
-  final cutoff = last.measuredAt.subtract(window);
+  final cutoff = last.measuredAt.subtract(_threeSends(sendInterval(history)));
   final first = history.firstWhere(
     (r) => !r.measuredAt.isBefore(cutoff),
     orElse: () => history.first,

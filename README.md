@@ -26,12 +26,15 @@ Saat dibuka, aplikasi menampilkan animasi tangki terisi dan nama aplikasi selama
   - *Ketinggian*: tinggi air dalam cm (satu desimal, mis. `109,8 cm`).
   - *Ruang kosong*: liter yang belum terisi.
   - *Tren*: Mengisi / Berkurang / Stabil, laju %/menit, dan perkiraan waktu
-    sampai penuh atau kosong.
+    sampai penuh atau kosong. Dihitung dari 3 kiriman terakhir perangkat
+    (minimal 2 menit), jadi tetap muncul walau perangkat mengirim tiap 5 menit.
 - **Grafik riwayat ketinggian** dengan garis batas penuh dan kosong. Rentangnya
   bisa dipilih: **12 jam** (bawaan), **24 jam**, **7 hari**, **1 bulan** (30 hari
   terakhir), atau **rentang tanggal** sendiri. Tiap rentang dirangkum menjadi
   paling banyak 240 titik rata-rata (1 bulan: 1 titik ±3 jam), jadi kenaikan
-  singkat bisa tidak terlihat di rentang panjang.
+  singkat bisa tidak terlihat di rentang panjang. Data yang lebih tua dari
+  30 hari tampil dari rata-rata per jam (lihat
+  [Rangkum data lama](#6-rangkum-dan-hapus-data-lama)).
 - **Sensor pelampung** (bila dipakai): status *Penuh* / *Belum penuh* dan
   kapan terakhir diperbarui.
 - **Banner peringatan** bila sensor tidak terhubung, perangkat berhenti
@@ -48,8 +51,12 @@ Pill di kanan atas menunjukkan kesegaran data:
 |---|---|
 | **Belum diatur** | Perangkat dan sensor belum dipilih di Pengaturan |
 | **Menghubungkan** | Sedang mengambil data pertama |
-| **Live** | Membaca Supabase, data terbaru berumur < 2 menit |
-| **Tidak aktif** | Membaca Supabase, tetapi perangkat tidak mengirim data > 2 menit |
+| **Live** | Membaca Supabase, dan perangkat mengirim sesuai jadwalnya |
+| **Tidak aktif** | Membaca Supabase, tetapi perangkat melewatkan 3 kiriman (minimal 2 menit) |
+
+Jadwal kirim dibaca otomatis dari jarak antar data terakhir. Perangkat yang mengirim
+tiap 5 menit baru dianggap tidak aktif setelah ±15 menit tanpa data, dan yang tiap
+30 detik setelah 2 menit.
 | **Offline** | Gagal menghubungi Supabase (alasannya tampil di banner) |
 
 ### Notifikasi
@@ -163,6 +170,9 @@ di **SQL Editor**. Isinya:
   memvalidasi isinya di server.
 - **`sensor_readings_buckets`**: fungsi baca untuk grafik, yang merangkum data di
   server karena satu request tidak bisa mengambil puluhan ribu baris.
+- **Rangkuman per jam**: tabel `sensor_readings_hourly` dan fungsi
+  `rollup_sensor_readings`, yang menjaga `sensor_readings` tetap kecil
+  ([langkah 6](#6-rangkum-dan-hapus-data-lama)).
 
 ⚠️ Bila perangkat saat ini meng-*insert* `sensor_readings` memakai anon key,
 RLS akan memblokirnya. Pindahkan perangkat ke fungsi `submit_reading`.
@@ -210,6 +220,33 @@ toren di **ESP32 Toren Atas**.
 **Pengaturan → Buka kunci untuk mengubah (PIN admin) → Perangkat → Sensor
 ketinggian → (Sensor pelampung) → Uji koneksi → Simpan untuk semua HP.**
 Subjudul di dashboard berubah menjadi nama perangkat, di semua HP.
+
+### 6. Rangkum dan hapus data lama
+`rollup_sensor_readings` merangkum setiap jam ke `sensor_readings_hourly`
+(rata-rata, minimum, maksimum, jumlah data), lalu **menghapus data mentah yang
+lebih tua dari 30 hari**. Baris terbaru tiap sensor tidak pernah dihapus,
+sehingga status pelampung yang jarang berubah tetap ada. Grafik tetap bisa
+menampilkan periode lama dari rangkuman per jam.
+
+1. **Cadangkan dulu.** Penghapusan tidak bisa dibatalkan. Di **Table Editor →
+   `sensor_readings` → Export → CSV**.
+2. Jalankan `setup.sql` versi terbaru.
+3. Aktifkan **pg_cron** di **Database → Extensions**, lalu jalankan `setup.sql`
+   sekali lagi. Rollup terjadwal tiap jam pada menit ke-5.
+4. Jalankan rollup pertama secara manual. Ini yang menghapus data lama:
+
+```sql
+select * from public.rollup_sensor_readings();
+```
+
+Hasilnya menunjukkan jumlah jam yang dirangkum dan baris yang dihapus. Jalankan
+ulang kapan saja; rollup kedua di jam yang sama menghasilkan `0, 0`. Cek
+jadwalnya dengan `select * from cron.job;`.
+
+Untuk masa simpan lain, mis. 90 hari:
+`select * from public.rollup_sensor_readings(interval '90 days');`. Jadwal
+otomatis tetap memakai 30 hari, kecuali perintah di `setup.sql` bagian 6
+diubah.
 
 ## Menjalankan
 

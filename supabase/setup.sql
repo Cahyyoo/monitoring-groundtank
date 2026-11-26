@@ -260,10 +260,38 @@ begin
   end if;
 end $$;
 
--- 5. Chart history: one sensor's readings between two times, averaged into at
---    most p_buckets points. A month at one reading every 30 seconds is about
---    86,000 rows, far past what one API request returns, so the summing up
---    happens here. Read-only and security invoker: RLS still decides.
+-- 5. Hourly summary of sensor_readings, so raw rows can be removed after 30
+--    days without losing the history. Read-only for the app; only the rollup
+--    in section 6 writes it.
+create table if not exists public.sensor_readings_hourly (
+  device_id uuid             not null,
+  sensor_id uuid             not null,
+  hour      timestamptz      not null,
+  avg_value double precision not null,
+  min_value double precision not null,
+  max_value double precision not null,
+  readings  integer          not null,
+  primary key (device_id, sensor_id, hour)
+);
+
+alter table public.sensor_readings_hourly enable row level security;
+
+drop policy if exists "groundtank app reads sensor_readings_hourly"
+  on public.sensor_readings_hourly;
+create policy "groundtank app reads sensor_readings_hourly"
+  on public.sensor_readings_hourly for select to anon, authenticated using (true);
+
+-- Said outright rather than left to Supabase's default grants: the chart
+-- function below runs as the app and reads this table.
+grant select on public.sensor_readings_hourly to anon, authenticated;
+revoke insert, update, delete, truncate on public.sensor_readings_hourly
+  from anon, authenticated;
+
+-- Chart history: one sensor's readings between two times, averaged into at
+-- most p_buckets points, since a long range holds far more rows than one API
+-- request returns. Raw readings where they still exist; for hours whose raw
+-- rows the rollup has removed, that hour's average, weighted by the number of
+-- readings it stands for. Read-only and security invoker: RLS still decides.
 create or replace function public.sensor_readings_buckets(
   p_device_id uuid,
   p_sensor_id uuid,
@@ -276,17 +304,39 @@ language sql
 stable
 set search_path = ''
 as $$
-  select to_timestamp(avg(extract(epoch from r."timestamp")::double precision)),
-         avg(replace(btrim(r.value), ',', '.')::double precision)
-  from public.sensor_readings r
-  where r.device_id = p_device_id
-    and r.sensor_id = p_sensor_id
-    and r."timestamp" >= p_from
-    and r."timestamp" < p_to
-    and p_to > p_from
-    and btrim(r.value) ~ '^-?[0-9]+([.,][0-9]+)?$'
+  with points (t, v, w) as (
+    select extract(epoch from r."timestamp")::double precision,
+           replace(btrim(r.value), ',', '.')::double precision,
+           1
+    from public.sensor_readings r
+    where r.device_id = p_device_id
+      and r.sensor_id = p_sensor_id
+      and r."timestamp" >= p_from
+      and r."timestamp" < p_to
+      and btrim(r.value) ~ '^-?[0-9]+([.,][0-9]+)?$'
+    union all
+    select extract(epoch from h.hour + interval '30 minutes')::double precision,
+           h.avg_value,
+           h.readings
+    from public.sensor_readings_hourly h
+    where h.device_id = p_device_id
+      and h.sensor_id = p_sensor_id
+      and h.hour + interval '30 minutes' >= p_from
+      and h.hour + interval '30 minutes' < p_to
+      and not exists (
+        select 1
+        from public.sensor_readings r
+        where r.device_id = h.device_id
+          and r.sensor_id = h.sensor_id
+          and r."timestamp" >= h.hour
+          and r."timestamp" < h.hour + interval '1 hour'
+      )
+  )
+  select to_timestamp(sum(t * w) / sum(w)), sum(v * w) / sum(w)
+  from points
+  where p_to > p_from
   group by width_bucket(
-    extract(epoch from r."timestamp")::double precision,
+    t,
     extract(epoch from p_from)::double precision,
     extract(epoch from p_to)::double precision,
     least(greatest(p_buckets, 1), 1000)
@@ -300,3 +350,85 @@ revoke all on function public.sensor_readings_buckets(
 grant execute on function public.sensor_readings_buckets(
   uuid, uuid, timestamptz, timestamptz, integer
 ) to anon, authenticated;
+
+-- 6. Rollup and retention: every hour, summarise the hours that have ended
+--    into sensor_readings_hourly, then delete raw readings older than p_keep
+--    (30 days). Never a sensor's newest row: a float switch that only reports
+--    a change would otherwise lose its current state. Safe to run again: the
+--    summary is rebuilt from whatever raw rows remain.
+--
+--    Back up sensor_readings before the first run, which deletes every raw
+--    row older than 30 days: select * from public.rollup_sensor_readings();
+create or replace function public.rollup_sensor_readings(
+  p_keep interval default interval '30 days'
+)
+returns table (hours_summarised integer, rows_deleted integer)
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_cutoff timestamptz;
+begin
+  if p_keep is null or p_keep < interval '1 day' then
+    raise exception 'p_keep must be at least 1 day, got %', p_keep;
+  end if;
+  v_cutoff := date_trunc('hour', now() - p_keep);
+
+  insert into public.sensor_readings_hourly as h
+    (device_id, sensor_id, hour, avg_value, min_value, max_value, readings)
+  select s.device_id, s.sensor_id, date_trunc('hour', s."timestamp"),
+         avg(s.v), min(s.v), max(s.v), count(*)
+  from (
+    select r.device_id, r.sensor_id, r."timestamp",
+           replace(btrim(r.value), ',', '.')::double precision as v
+    from public.sensor_readings r
+    where r."timestamp" < date_trunc('hour', now())
+      and btrim(r.value) ~ '^-?[0-9]+([.,][0-9]+)?$'
+  ) s
+  group by 1, 2, 3
+  on conflict (device_id, sensor_id, hour) do update set
+    avg_value = excluded.avg_value,
+    min_value = excluded.min_value,
+    max_value = excluded.max_value,
+    readings  = excluded.readings
+  -- Hours that have not changed are left alone, so a run writes only what is
+  -- new and hours_summarised counts just that.
+  where (h.avg_value, h.min_value, h.max_value, h.readings)
+        is distinct from
+        (excluded.avg_value, excluded.min_value, excluded.max_value, excluded.readings);
+  get diagnostics hours_summarised = row_count;
+
+  delete from public.sensor_readings r
+  where r."timestamp" < v_cutoff
+    and exists (
+      select 1
+      from public.sensor_readings n
+      where n.device_id = r.device_id
+        and n.sensor_id = r.sensor_id
+        and n."timestamp" > r."timestamp"
+    );
+  get diagnostics rows_deleted = row_count;
+
+  return next;
+end;
+$$;
+
+-- Only the database owner and pg_cron run it; the app never can.
+revoke all on function public.rollup_sensor_readings(interval)
+  from public, anon, authenticated;
+
+-- Hourly at minute 5, once pg_cron is on (Database -> Extensions). Until then
+-- this only says so; run this file again after turning it on.
+do $$
+begin
+  if exists (select 1 from pg_extension where extname = 'pg_cron') then
+    perform cron.schedule(
+      'groundtank-rollup',
+      '5 * * * *',
+      'select public.rollup_sensor_readings()'
+    );
+  else
+    raise notice 'pg_cron is not enabled: the hourly rollup is not scheduled yet.';
+  end if;
+end $$;

@@ -173,11 +173,13 @@ Contoh body untuk pelampung terangkat. ID-nya milik data dummy
 ## 5. Aturan pengiriman
 
 ### 5.1 Interval
-- **WAJIB** mengirim paling lambat **tiap 60 detik**. Aplikasi menandai
-  perangkat **"Tidak aktif"** bila tidak ada data baru selama lebih dari
-  2 menit.
-- **DISARANKAN** **30 detik**.
-- **DILARANG** lebih cepat dari **5 detik**. Pengiriman terlalu sering hanya
+- **DISARANKAN** **tiap 5 menit**.
+- **WAJIB** antara **30 detik dan 10 menit**, dengan **interval yang tetap**.
+  Aplikasi membaca interval dari jarak antar data, lalu menandai perangkat
+  **"Tidak aktif"** bila 3 kiriman terlewat (minimal 2 menit; untuk 5 menit
+  berarti ±15 menit). Interval yang berubah-ubah membuat penilaian ini
+  meleset.
+- **DILARANG** lebih cepat dari 30 detik. Pengiriman terlalu sering hanya
   membebani database tanpa menambah informasi.
 
 ### 5.2 Koneksi

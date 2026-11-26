@@ -141,30 +141,71 @@ void main() {
   group('isStale', () {
     final now = DateTime(2026, 10, 28, 12);
 
-    test('allows at least two minutes, even when polling fast', () {
-      final ago = now.subtract(const Duration(seconds: 100));
-      expect(isStale(ago, pollSeconds: 5, now: now), isFalse);
+    bool staleAfter(int minutes, Duration? interval) => isStale(
+      now.subtract(Duration(minutes: minutes)),
+      interval: interval,
+      now: now,
+    );
+
+    test('a device sending every 5 minutes has three sends of grace', () {
+      const fiveMinutes = Duration(minutes: 5);
+      expect(staleAfter(6, fiveMinutes), isFalse);
+      expect(staleAfter(14, fiveMinutes), isFalse);
+      expect(staleAfter(16, fiveMinutes), isTrue);
+    });
+
+    test('allows at least two minutes, even for a fast device', () {
+      const thirtySeconds = Duration(seconds: 30);
       expect(
         isStale(
-          now.subtract(const Duration(minutes: 3)),
-          pollSeconds: 5,
+          now.subtract(const Duration(seconds: 100)),
+          interval: thirtySeconds,
           now: now,
         ),
-        isTrue,
+        isFalse,
+      );
+      expect(staleAfter(3, thirtySeconds), isTrue);
+    });
+
+    test('an unmeasured device is taken to send every 5 minutes', () {
+      expect(staleAfter(14, null), isFalse);
+      expect(staleAfter(16, null), isTrue);
+    });
+  });
+
+  group('sendInterval', () {
+    TankReading at(int minute) => TankReading(
+      percent: 50,
+      levelCm: 0,
+      volumeLiters: 0,
+      measuredAt: DateTime(2026, 1, 1, 12).add(Duration(minutes: minute)),
+    );
+
+    test('needs two readings', () {
+      expect(sendInterval([]), isNull);
+      expect(sendInterval([at(0)]), isNull);
+    });
+
+    test('reads the pace from the gaps', () {
+      expect(
+        sendInterval([at(0), at(5), at(10), at(15)]),
+        const Duration(minutes: 5),
       );
     });
 
-    test('allows three missed intervals when polling slowly', () {
-      final ago = now.subtract(const Duration(minutes: 25));
-      expect(isStale(ago, pollSeconds: 600, now: now), isFalse);
+    test('one missed send does not change it', () {
       expect(
-        isStale(
-          now.subtract(const Duration(minutes: 31)),
-          pollSeconds: 600,
-          now: now,
-        ),
-        isTrue,
+        sendInterval([at(0), at(5), at(10), at(20), at(25)]),
+        const Duration(minutes: 5),
       );
+    });
+
+    test('looks at the newest readings only', () {
+      final slowThenFast = [
+        for (var m = 0; m <= 60; m += 10) at(m),
+        for (var m = 61; m <= 67; m++) at(m),
+      ];
+      expect(sendInterval(slowThenFast), const Duration(minutes: 1));
     });
   });
 
@@ -185,6 +226,23 @@ void main() {
       final trend = trendOf([at(0, 50), at(15, 51), at(30, 52)])!;
       expect(trend.direction, TrendDirection.filling);
       expect(trend.percentPerMinute, closeTo(4, 1e-9));
+    });
+
+    test('works with a reading every 5 minutes', () {
+      TankReading atMinute(int minute, double percent) => TankReading(
+        percent: percent,
+        levelCm: 0,
+        volumeLiters: 0,
+        measuredAt: DateTime(2026, 1, 1, 12, minute),
+      );
+      final trend = trendOf([
+        atMinute(0, 40),
+        atMinute(5, 45),
+        atMinute(10, 50),
+        atMinute(15, 55),
+      ])!;
+      expect(trend.direction, TrendDirection.filling);
+      expect(trend.percentPerMinute, closeTo(1, 1e-9));
     });
 
     test('calls a tiny change steady', () {
